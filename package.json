@@ -1,0 +1,10 @@
+{
+    "name": "padelfill",
+        "version": "0.1.0",
+        "description": "PadelFill Phase 1 prototype: Playtomic gap detection + level matching for La Casa de Padel CY",
+        "main": "server.js",
+        "scripts": {
+          "start": "node server.js"
+    },
+  "dependencies": {}
+}
