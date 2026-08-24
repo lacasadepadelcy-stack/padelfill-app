@@ -17,37 +17,36 @@ const likes = {};
 // Αν δεν δοθούν, χρησιμοποιείται προεπιλεγμένη ζώνη ±0.5 γύρω από το δικό του.
 function getNextCandidate(forPlayerId, options = {}) {
   const players = playtomic.getPlayers();
-    const me = players.find((p) => p.id === forPlayerId);
-      const seen = likes[forPlayerId] || new Set();
+  const me = players.find((p) => p.id === forPlayerId);
+  const seen = likes[forPlayerId] || new Set();
 
-        const hasManualRange = typeof options.minLevel === "number" || typeof options.maxLevel === "number";
-          const minLevel = hasManualRange ? (options.minLevel ?? -Infinity) : (me ? me.level - 0.5 : -Infinity);
-            const maxLevel = hasManualRange ? (options.maxLevel ?? Infinity) : (me ? me.level + 0.5 : Infinity);
+  const hasManualRange = typeof options.minLevel === "number" || typeof options.maxLevel === "number";
+  const minLevel = hasManualRange ? (options.minLevel ?? -Infinity) : (me ? me.level - 0.5 : -Infinity);
+  const maxLevel = hasManualRange ? (options.maxLevel ?? Infinity) : (me ? me.level + 0.5 : Infinity);
 
-              let pool = players.filter(
-                  (p) => p.id !== forPlayerId && !seen.has(p.id) && p.level >= minLevel && p.level <= maxLevel
-                    );
+  let pool = players.filter(
+    (p) => p.id !== forPlayerId && !seen.has(p.id) && p.level >= minLevel && p.level <= maxLevel
+  );
 
-                      // Ποικιλία αντιπάλων: προηγούνται όσοι έχει παίξει μαζί τους
-                        // λιγότερες φορές πρόσφατα, αντί να προτείνεται συνεχεια το ίδιο άτομο.
-                          pool = history.rankByVariety(forPlayerId, pool);
+  // Ποικιλία αντιπάλων: προηγούνται όσοι έχει παίξει μαζί τους λιγότερες
+  // φορές πρόσφατα, αντί να προτείνεται συνέχεια το ίδιο άτομο.
+  pool = history.rankByVariety(forPlayerId, pool);
 
-                            return pool[0] || null;
-                            }
+  return pool[0] || null;
+}
 
-                            function swipe(fromId, toId, liked) {
-                              if (!likes[fromId]) likes[fromId] = new Set();
-                                if (liked) {
-                                    likes[fromId].add(toId);
-                                      }
+function swipe(fromId, toId, liked) {
+  if (!likes[fromId]) likes[fromId] = new Set();
+  if (liked) {
+    likes[fromId].add(toId);
+  }
 
-                                        // Mock αμοιβαιότητα: για το demo, θεωρούμε ότι ο άλλος παίκτης έχει ήδη
-                                          // κάνει like σε 'p1' ώστε να μπορεί κανείς να δει ένα πραγματικό match.
-                                            const reciprocal = likes[toId] && likes[toId].has(fromId);
-                                              const demoMatch = liked && toId === "p1";
+  // Mock αμοιβαιότητα: για το demo, θεωρούμε ότι ο άλλος παίκτης έχει ήδη
+  // κάνει like σε 'p1' ώστε να μπορεί κανείς να δει ένα πραγματικό match.
+  const reciprocal = likes[toId] && likes[toId].has(fromId);
+  const demoMatch = liked && toId === "p1";
 
-                                                return { matched: Boolean(liked && (reciprocal || demoMatch)) };
-                                                }
+  return { matched: Boolean(liked && (reciprocal || demoMatch)) };
+}
 
-                                                module.exports = { getNextCandidate, swipe };
-                                                
+module.exports = { getNextCandidate, swipe };
