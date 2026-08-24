@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<title>PadelFill</title>
+<style>
+  :root{
+    --surface-0:#f7f6f2; --surface-1:#f1efe8; --surface-2:#ffffff;
+    --text-primary:#2c2c2a; --text-secondary:#5f5e5a; --text-muted:#888780;
+    --border:#d3d1c7; --border-strong:#b4b2a9;
+    --bg-accent:#e6f1fb; --text-accent:#0c447c;
+    --bg-pro:#eeedfe; --text-pro:#3c3489;
+    --bg-warning:#faeeda; --text-warning:#633806; --border-warning:#ef9f27;
+    --text-success:#27500a; --radius:8px;
+  }
+  body{ font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; background:var(--surface-0); color:var(--text-primary); margin:0; padding:2rem; }
+  .wrap{ max-width:780px; margin:0 auto; }
+  h1{ font-size:20px; font-weight:500; margin:0 0 4px; }
+  .sub{ font-size:13px; color:var(--text-secondary); margin:0 0 1.5rem; }
+  input, button{ font-size:13px; padding:6px 10px; border-radius:var(--radius); border:0.5px solid var(--border-strong); background:var(--surface-2); }
+  button{ cursor:pointer; }
+  button.active{ background:var(--surface-1); }
+  .nav{ display:flex; gap:8px; margin-bottom:1.25rem; flex-wrap:wrap; }
+  .daynav{ display:flex; align-items:center; gap:10px; margin-bottom:1rem; }
+  .grid{ display:grid; grid-template-columns:70px repeat(6,1fr); gap:6px; margin-bottom: 1.5rem; }
+  .hdr{ font-size:12px; color:var(--text-muted); text-align:center; }
+  .rowlabel{ font-size:13px; color:var(--text-secondary); align-self:center; }
+  .slot{ border-radius:6px; font-size:12px; text-align:center; padding:10px 4px; color:var(--text-secondary); background:var(--surface-1); }
+  .slot.booked.game{ background:var(--bg-accent); color:var(--text-accent); }
+  .slot.booked.training{ background:var(--bg-pro); color:var(--text-pro); }
+  .slot.gap{ background:var(--bg-warning); color:var(--text-warning); cursor:pointer; border:0.5px solid var(--border-warning); }
+  .gapdetail{ margin-top:16px; display:none; background:var(--surface-1); border-radius:var(--radius); padding:1rem; }
+  .levelfilter{ display:flex; align-items:center; gap:8px; margin-bottom:12px; font-size:13px; }
+  .levelfilter input{ width:56px; }
+  .player{ display:flex; align-items:center; justify-content:space-between; background:var(--surface-2); border:0.5px solid var(--border); border-radius:var(--radius); padding:8px 12px; font-size:13px; margin-bottom:8px; gap:8px; }
+  .player .actions{ display:flex; align-items:center; gap:8px; }
+  .notified{ color:var(--text-success); font-size:12px; }
+  .card{ background:var(--surface-2); border:0.5px solid var(--border); border-radius:12px; padding:1.25rem; text-align:center; max-width:280px; margin:0 auto; }
+  .avatar{ width:64px; height:64px; border-radius:50%; background:var(--bg-accent); color:var(--text-accent); display:flex; align-items:center; justify-content:center; font-weight:500; font-size:18px; margin:0 auto 12px; }
+  .swipe-actions{ display:flex; justify-content:center; gap:16px; margin-top:16px; max-width:280px; margin-left:auto; margin-right:auto; }
+  .round{ width:44px; height:44px; border-radius:50%; padding:0; font-size:18px; }
+  .msg{ text-align:center; font-size:13px; color:var(--text-success); margin-top:12px; display:none; max-width:280px; margin-left:auto; margin-right:auto; }
+  .metrics{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+  .metric{ background:var(--surface-1); border-radius:var(--radius); padding:1rem; }
+  .metric p:first-child{ font-size:13px; color:var(--text-secondary); margin:0 0 4px; }
+  .metric p:last-child{ font-size:24px; font-weight:500; margin:0; }
+  .view{ }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PadelFill</h1>
+  <p class="sub">La Casa de Padel CY · Phase 1 prototype (mock Playtomic δεδομένα)</p>
+
+  <div class="nav">
+    <button class="navbtn active" data-view="schedule">Πρόγραμμα & κενά</button>
+    <button class="navbtn" data-view="swipe">Swipe to play</button>
+    <button class="navbtn" data-view="dash">Dashboard</button>
+  </div>
+
+  <div id="view-schedule" class="view"></div>
+  <div id="view-swipe" class="view" style="display:none;"></div>
+  <div id="view-dash" class="view" style="display:none;"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
+
