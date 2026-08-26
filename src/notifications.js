@@ -54,10 +54,13 @@ function dayLabel(dateStr, lang) {
 // μπορεί να παίξει τη συγκεκριμένη ώρα — σε Ελληνικά ή Αγγλικά.
 function buildMessage(player, gapInfo, lang) {
   const when = dayLabel(gapInfo.date, lang);
+  // Μόνο το μικρό όνομα (όχι επίθετο) — πιο προσωπικό/φυσικό ύφος, ιδίως
+  // όταν το όνομα είναι σε λατινικούς χαρακτήρες μέσα σε ελληνική πρόταση.
+  const firstName = String(player.name || "").trim().split(/\s+/)[0];
   if (lang === "en") {
-    return `Hi ${player.name}! Can you play padel ${when} at ${gapInfo.time}?`;
+    return `Hey ${firstName}, would you like to join a game ${when} at ${gapInfo.time}?`;
   }
-  return `Γεια σου ${player.name}! Μπορείς να παίξεις padel ${when} στις ${gapInfo.time};`;
+  return `Έλα ${firstName}, θα ήθελες να μπεις σε παιχνίδι ${when} στις ${gapInfo.time};`;
 }
 
 function sendGapNotification(player, gapInfo, lang = "el") {
