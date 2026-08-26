@@ -42,7 +42,9 @@ function generateHours(startHour, endHour, stepMinutes) {
   return out;
 }
 
-const HOURS = generateHours(7, 22, 30);
+// Μέχρι 23:30 (ώρα κλεισίματος) ώστε να χωράνε και οι τελευταίες κρατήσεις
+// μαζί με όλα τα slots "συνέχειας" που τυχόν καλύπτουν μέχρι το κλείσιμο.
+const HOURS = generateHours(7, 23.5, 30);
 
 // Το Playtomic API επιστρέφει τις ώρες κρατήσεων σε UTC. Το club είναι στην
 // Κύπρο (Asia/Nicosia), που τώρα είναι UTC+3 (θερινή ώρα) — χωρίς αυτή τη
