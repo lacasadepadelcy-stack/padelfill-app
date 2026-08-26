@@ -15,8 +15,8 @@ const likes = {};
 
 // options.minLevel / options.maxLevel: ρητό εύρος επιπέδου από τον χρήστη.
 // Αν δεν δοθούν, χρησιμοποιείται προεπιλεγμένη ζώνη ±0.5 γύρω από το δικό του.
-function getNextCandidate(forPlayerId, options = {}) {
-  const players = playtomic.getPlayers();
+async function getNextCandidate(forPlayerId, options = {}) {
+  const players = await playtomic.getPlayers();
   const me = players.find((p) => p.id === forPlayerId);
   const seen = likes[forPlayerId] || new Set();
 
@@ -30,7 +30,7 @@ function getNextCandidate(forPlayerId, options = {}) {
 
   // Ποικιλία αντιπάλων: προηγούνται όσοι έχει παίξει μαζί τους λιγότερες
   // φορές πρόσφατα, αντί να προτείνεται συνέχεια το ίδιο άτομο.
-  pool = history.rankByVariety(forPlayerId, pool);
+  pool = await history.rankByVariety(forPlayerId, pool);
 
   return pool[0] || null;
 }

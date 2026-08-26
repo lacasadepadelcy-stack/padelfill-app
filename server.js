@@ -80,7 +80,7 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/schedule" && req.method === "GET") {
       const date = searchParams.get("date") || todayISO();
-      return sendJSON(res, 200, { date, schedule: matching.buildSchedule(date) });
+      return sendJSON(res, 200, { date, schedule: await matching.buildSchedule(date) });
     }
 
     const gapMatch = pathname.match(/^\/api\/gaps\/([^/]+)\/suggestions$/);
@@ -91,7 +91,7 @@ const server = http.createServer(async (req, res) => {
         minLevel: parseFloatOrUndefined(searchParams.get("minLevel")),
         maxLevel: parseFloatOrUndefined(searchParams.get("maxLevel")),
       };
-      return sendJSON(res, 200, matching.suggestPlayersForGap(gapId, date, options));
+      return sendJSON(res, 200, await matching.suggestPlayersForGap(gapId, date, options));
     }
 
     const notifyMatch = pathname.match(/^\/api\/gaps\/([^/]+)\/notify$/);
@@ -102,8 +102,10 @@ const server = http.createServer(async (req, res) => {
       if (!playerId) return sendJSON(res, 400, { error: "playerId απαιτείται" });
 
       const [courtId, time] = gapId.split("__");
-      const courtName = playtomic.getCourts().find((c) => c.id === courtId)?.name || courtId;
-      const player = playtomic.getPlayers().find((p) => p.id === playerId);
+      const courts = await playtomic.getCourts();
+      const courtName = courts.find((c) => c.id === courtId)?.name || courtId;
+      const players = await playtomic.getPlayers();
+      const player = players.find((p) => p.id === playerId);
       if (!player) return sendJSON(res, 404, { error: "Άγνωστος παίκτης" });
 
       const entry = notifications.sendGapNotification(player, { gapId, time, courtName, date });
@@ -116,13 +118,13 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/dashboard" && req.method === "GET") {
       const date = searchParams.get("date") || todayISO();
-      return sendJSON(res, 200, matching.buildDashboard(date));
+      return sendJSON(res, 200, await matching.buildDashboard(date));
     }
 
     const historyMatch = pathname.match(/^\/api\/players\/([^/]+)\/history$/);
     if (historyMatch && req.method === "GET") {
       const playerId = decodeURIComponent(historyMatch[1]);
-      return sendJSON(res, 200, { history: history.getOpponentHistory(playerId) });
+      return sendJSON(res, 200, { history: await history.getOpponentHistory(playerId) });
     }
 
     if (pathname === "/api/swipe/next" && req.method === "GET") {
@@ -131,7 +133,7 @@ const server = http.createServer(async (req, res) => {
         minLevel: parseFloatOrUndefined(searchParams.get("minLevel")),
         maxLevel: parseFloatOrUndefined(searchParams.get("maxLevel")),
       };
-      return sendJSON(res, 200, { candidate: swipeModule.getNextCandidate(forId, options) });
+      return sendJSON(res, 200, { candidate: await swipeModule.getNextCandidate(forId, options) });
     }
 
     if (pathname === "/api/swipe" && req.method === "POST") {

@@ -1,118 +1,133 @@
-// matching.js -- Εντοπισμός κενών και matching παικτών ίδιου επιπέδου.
+// matching.js
+//
+// Η "καρδιά" του PadelFill: εντοπισμός κενών (gap detection) και matching
+// παικτών ίδιου επιπέδου για να τα γεμίσουν. Δουλεύει πάνω από τα δεδομένα
+// του playtomicClient.js (mock ή πραγματικό Playtomic API) — όποτε αλλάξει
+// η πηγή δεδομένων, αυτό το αρχείο δεν χρειάζεται αλλαγές.
+//
+// Όλες οι συναρτήσεις είναι async επειδή το playtomicClient.js μπορεί να
+// κάνει πραγματικά HTTP calls προς το Playtomic API.
 
 const playtomic = require("./playtomicClient");
 
-const LEVEL_TOLERANCE = 0.5;
+const LEVEL_TOLERANCE = 0.5; // πόσο μπορεί να διαφέρει το επίπεδο για να θεωρηθεί "ταίρι"
 
-function buildSchedule(date) {
-const courts = playtomic.getCourts();
-const hours = playtomic.getHours();
-const bookings = playtomic.getBookingsForDate(date);
-const players = playtomic.getPlayers();
-const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
+async function buildSchedule(date) {
+  const courts = await playtomic.getCourts();
+  const hours = playtomic.getHours();
+  const bookings = await playtomic.getBookingsForDate(date);
+  const players = await playtomic.getPlayers();
+  const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
 
-const schedule = courts.map((court) => {
-const slots = hours.map((time) => {
-const booking = bookings.find((b) => b.court === court.id && b.time === time);
-if (booking) {
-return {
-time,
-status: "booked",
-type: booking.type,
-players: booking.players.map((id) => playerById[id]),
-};
-}
-return { time, status: "gap", gapId: `${court.id}__${time}` };
-});
-return { court, slots };
-});
+  const schedule = courts.map((court) => {
+    const slots = hours.map((time) => {
+      const booking = bookings.find((b) => b.court === court.id && b.time === time);
+      if (booking) {
+        return {
+          time,
+          status: "booked",
+          type: booking.type,
+          players: booking.players.map((id) => playerById[id]).filter(Boolean),
+        };
+      }
+      return { time, status: "gap", gapId: `${court.id}__${time}` };
+    });
+    return { court, slots };
+  });
 
-return schedule;
-}
-
-function suggestPlayersForGap(gapId, date, options = {}) {
-const [courtId, time] = gapId.split("__");
-const bookings = playtomic.getBookingsForDate(date);
-const players = playtomic.getPlayers();
-const hours = playtomic.getHours();
-
-const idx = hours.indexOf(time);
-const neighborBookings = bookings.filter(
-(b) => b.court === courtId && Math.abs(hours.indexOf(b.time) - idx) === 1
-);
-
-let targetLevel = null;
-if (neighborBookings.length > 0) {
-const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
-const levels = neighborBookings.flatMap((b) => b.players.map((id) => playerById[id]?.level).filter(Boolean));
-if (levels.length > 0) {
-targetLevel = levels.reduce((a, b) => a + b, 0) / levels.length;
-}
+  return schedule;
 }
 
-const alreadyBookedNow = new Set(
-bookings.filter((b) => b.time === time).flatMap((b) => b.players)
-);
+// Βρίσκει παίκτες ίδιου/παρόμοιου επιπέδου για ένα συγκεκριμένο κενό.
+// Λογική: παίρνουμε το μέσο επίπεδο των παικτών που έπαιξαν στο ίδιο γήπεδο
+// γύρω από αυτή την ώρα (προηγούμενες/επόμενες κρατήσεις) ως ένδειξη για το
+// "επίπεδο της ζώνης ώρας" — αλλιώς προτείνουμε παίκτες μεσαίου επιπέδου.
+//
+// options.minLevel / options.maxLevel: αν δοθούν (π.χ. από τον χρήστη μέσω
+// UI), αντικαθιστούν την αυτόματη ζώνη ανοχής με ένα ρητό εύρος επιπέδου.
+async function suggestPlayersForGap(gapId, date, options = {}) {
+  const [courtId, time] = gapId.split("__");
+  const bookings = await playtomic.getBookingsForDate(date);
+  const players = await playtomic.getPlayers();
+  const hours = playtomic.getHours();
 
-const hasManualRange = typeof options.minLevel === "number" || typeof options.maxLevel === "number";
-const minLevel = hasManualRange ? (options.minLevel ?? -Infinity) : null;
-const maxLevel = hasManualRange ? (options.maxLevel ?? Infinity) : null;
+  const idx = hours.indexOf(time);
+  const neighborBookings = bookings.filter(
+    (b) => b.court === courtId && Math.abs(hours.indexOf(b.time) - idx) === 1
+  );
 
-let candidates = players.filter((p) => !alreadyBookedNow.has(p.id));
+  let targetLevel = null;
+  if (neighborBookings.length > 0) {
+    const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
+    const levels = neighborBookings.flatMap((b) => b.players.map((id) => playerById[id]?.level).filter(Boolean));
+    if (levels.length > 0) {
+      targetLevel = levels.reduce((a, b) => a + b, 0) / levels.length;
+    }
+  }
 
-if (hasManualRange) {
-candidates = candidates.filter((p) => p.level >= minLevel && p.level <= maxLevel);
-} else if (targetLevel !== null) {
-candidates = candidates.filter((p) => Math.abs(p.level - targetLevel) <= LEVEL_TOLERANCE);
+  const alreadyBookedNow = new Set(
+    bookings.filter((b) => b.time === time).flatMap((b) => b.players)
+  );
+
+  const hasManualRange = typeof options.minLevel === "number" || typeof options.maxLevel === "number";
+  const minLevel = hasManualRange ? (options.minLevel ?? -Infinity) : null;
+  const maxLevel = hasManualRange ? (options.maxLevel ?? Infinity) : null;
+
+  let candidates = players.filter((p) => !alreadyBookedNow.has(p.id));
+
+  if (hasManualRange) {
+    candidates = candidates.filter((p) => p.level >= minLevel && p.level <= maxLevel);
+  } else if (targetLevel !== null) {
+    candidates = candidates.filter((p) => Math.abs(p.level - targetLevel) <= LEVEL_TOLERANCE);
+  }
+
+  candidates.sort((a, b) => {
+    if (targetLevel === null) return a.level - b.level;
+    return Math.abs(a.level - targetLevel) - Math.abs(b.level - targetLevel);
+  });
+
+  return {
+    targetLevel,
+    levelRange: hasManualRange ? { minLevel, maxLevel } : null,
+    suggestions: candidates.slice(0, 5),
+  };
 }
 
-candidates.sort((a, b) => {
-if (targetLevel === null) return a.level - b.level;
-return Math.abs(a.level - targetLevel) - Math.abs(b.level - targetLevel);
-});
+async function buildDashboard(date) {
+  const schedule = await buildSchedule(date);
+  let totalSlots = 0;
+  let bookedSlots = 0;
+  let gapSlots = 0;
+  let trainingCount = 0;
+  let gameCount = 0;
 
-return {
-targetLevel,
-levelRange: hasManualRange ? { minLevel, maxLevel } : null,
-suggestions: candidates.slice(0, 5),
-};
-}
+  schedule.forEach(({ slots }) => {
+    slots.forEach((s) => {
+      totalSlots += 1;
+      if (s.status === "booked") {
+        bookedSlots += 1;
+        if (s.type === "training") trainingCount += 1;
+        if (s.type === "game") gameCount += 1;
+      } else {
+        gapSlots += 1;
+      }
+    });
+  });
 
-function buildDashboard(date) {
-const schedule = buildSchedule(date);
-let totalSlots = 0;
-let bookedSlots = 0;
-let gapSlots = 0;
-let trainingCount = 0;
-let gameCount = 0;
+  const occupancyPct = totalSlots ? Math.round((bookedSlots / totalSlots) * 100) : 0;
+  const totalTypeCount = trainingCount + gameCount;
+  const trainingPct = totalTypeCount ? Math.round((trainingCount / totalTypeCount) * 100) : 0;
+  const gamePct = 100 - trainingPct;
 
-schedule.forEach(({ slots }) => {
-slots.forEach((s) => {
-totalSlots += 1;
-if (s.status === "booked") {
-bookedSlots += 1;
-if (s.type === "training") trainingCount += 1;
-if (s.type === "game") gameCount += 1;
-} else {
-gapSlots += 1;
-}
-});
-});
-
-const occupancyPct = totalSlots ? Math.round((bookedSlots / totalSlots) * 100) : 0;
-const totalTypeCount = trainingCount + gameCount;
-const trainingPct = totalTypeCount ? Math.round((trainingCount / totalTypeCount) * 100) : 0;
-const gamePct = 100 - trainingPct;
-
-return {
-date,
-occupancyPct,
-totalSlots,
-bookedSlots,
-gapSlots,
-trainingPct,
-gamePct,
-};
+  return {
+    date,
+    occupancyPct,
+    totalSlots,
+    bookedSlots,
+    gapSlots,
+    trainingPct,
+    gamePct,
+  };
 }
 
 module.exports = { buildSchedule, suggestPlayersForGap, buildDashboard };
