@@ -52,24 +52,44 @@ async function loadSchedule() {
   const res = await fetch(`/api/schedule?date=${currentDate()}`);
   const data = await res.json();
 
-  data.schedule.forEach(({ court, slots }) => {
-    const grid = document.createElement("div");
-    grid.className = "grid";
-    grid.appendChild(el("div", ""));
-    slots.forEach((s) => grid.appendChild(el("div", s.time, "hdr")));
-    grid.appendChild(el("div", court.name, "rowlabel"));
-    slots.forEach((s) => {
+  const courts = data.schedule.map((s) => s.court);
+  const hours = data.schedule[0] ? data.schedule[0].slots.map((s) => s.time) : [];
+
+  const scheduleWrap = document.createElement("div");
+  scheduleWrap.className = "schedulewrap";
+
+  const grid = document.createElement("div");
+  grid.className = "grid";
+  grid.style.gridTemplateColumns = `56px repeat(${courts.length}, 1fr)`;
+
+  // Επικεφαλίδα: κενό κελί (γωνία) + ένα όνομα γηπέδου ανά στήλη
+  grid.appendChild(el("div", ""));
+  courts.forEach((c) => grid.appendChild(el("div", c.name, "hdr courtname")));
+
+  // Μία γραμμή ανά ώρα, ένα κελί ανά γήπεδο σε αυτή τη γραμμή
+  hours.forEach((time, hIdx) => {
+    grid.appendChild(el("div", time, "rowlabel"));
+    data.schedule.forEach(({ slots }) => {
+      const s = slots[hIdx];
       if (s.status === "booked") {
         const lbl = s.type === "training" ? "Μάθημα" : "Παιχνίδι";
-        grid.appendChild(el("div", lbl, `slot booked ${s.type}`));
+        const cell = document.createElement("div");
+        cell.className = `slot booked ${s.type}`;
+        const namesHtml = (s.players || [])
+          .map((p) => `${p.name}${typeof p.level === "number" ? ` (${p.level})` : ""}`)
+          .join(", ");
+        cell.innerHTML = `<div class="slot-type">${lbl}</div>${namesHtml ? `<div class="slot-players">${namesHtml}</div>` : ""}`;
+        grid.appendChild(cell);
       } else {
         const cell = el("div", "Κενό", "slot gap");
         cell.addEventListener("click", () => showGapDetail(cell, s.gapId));
         grid.appendChild(cell);
       }
     });
-    container.appendChild(grid);
   });
+
+  scheduleWrap.appendChild(grid);
+  container.appendChild(scheduleWrap);
 }
 
 async function showGapDetail(cellEl, gapId) {
