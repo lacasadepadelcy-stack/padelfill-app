@@ -177,12 +177,15 @@ async function buildDashboard(date) {
 // να μπαίνει κανείς σε κάθε μέρα/κενό ξεχωριστά για να δει ποιον να καλέσει.
 // Συνεχόμενα κενά slots στο ίδιο γήπεδο ενώνονται σε ένα ενιαίο χρονικό
 // παράθυρο (π.χ. "10:00–12:00"), όπως ακριβώς και τα παιχνίδια στο πρόγραμμα.
+const CLOSING_TIME = "23:30"; // ώρα κλεισίματος club — χρησιμοποιείται όταν ένα κενό φτάνει μέχρι το τέλος της ημέρας
+
 async function buildWeeklyGaps(days = 7) {
   const dates = playtomic.getUpcomingDates(days);
   const report = [];
 
   for (const { date, label } of dates) {
     const schedule = await buildSchedule(date);
+    const dayEntries = [];
 
     for (const { court, slots } of schedule) {
       let i = 0;
@@ -194,23 +197,33 @@ async function buildWeeklyGaps(days = 7) {
         const startIdx = i;
         while (i < slots.length && slots[i].status === "gap") i += 1;
         const startTime = slots[startIdx].time;
-        const endTime = i < slots.length ? slots[i].time : null;
-        const gapId = slots[startIdx].gapId;
+        const endTime = i < slots.length ? slots[i].time : CLOSING_TIME;
+        const gapMinutes = timeToMinutes(endTime) - timeToMinutes(startTime);
+        // Αγνοούμε "κενά" μηδενικής διάρκειας (π.χ. ακριβώς η ώρα κλεισίματος,
+        // που δεν αντιπροσωπεύει πραγματικό παίξιμο χρόνο).
+        if (gapMinutes <= 0) continue;
 
+        const gapId = slots[startIdx].gapId;
         const { targetLevel, suggestions } = await suggestPlayersForGap(gapId, date);
 
-        report.push({
+        dayEntries.push({
           date,
           dateLabel: label,
           court,
           startTime,
           endTime,
+          gapMinutes,
           gapId,
           targetLevel,
           suggestions: suggestions.slice(0, 3),
         });
       }
     }
+
+    // Προτεραιότητα: τα μεγαλύτερα (πιο "χαμένα") κενά πρώτα μέσα σε κάθε
+    // ημέρα, ώστε να φαίνονται πρώτα οι πιο σημαντικές ευκαιρίες γεμίσματος.
+    dayEntries.sort((a, b) => b.gapMinutes - a.gapMinutes);
+    report.push(...dayEntries);
   }
 
   return report;
