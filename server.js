@@ -98,7 +98,7 @@ const server = http.createServer(async (req, res) => {
     if (notifyMatch && req.method === "POST") {
       const gapId = decodeURIComponent(notifyMatch[1]);
       const body = await readBody(req);
-      const { playerId, date } = body;
+      const { playerId, date, lang } = body;
       if (!playerId) return sendJSON(res, 400, { error: "playerId απαιτείται" });
 
       const [courtId, time] = gapId.split("__");
@@ -108,7 +108,7 @@ const server = http.createServer(async (req, res) => {
       const player = players.find((p) => p.id === playerId);
       if (!player) return sendJSON(res, 404, { error: "Άγνωστος παίκτης" });
 
-      const entry = notifications.sendGapNotification(player, { gapId, time, courtName, date });
+      const entry = notifications.sendGapNotification(player, { gapId, time, courtName, date }, lang);
       return sendJSON(res, 200, { sent: true, notification: entry });
     }
 

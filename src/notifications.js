@@ -29,14 +29,47 @@ function buildWhatsAppLink(phone, message) {
   return `https://wa.me/${sanitized}?text=${encodeURIComponent(message)}`;
 }
 
-function sendGapNotification(player, gapInfo) {
-  const message = `Γεια σου ${player.name}! Υπάρχει ελεύθερο γήπεδο στις ${gapInfo.time} (${gapInfo.courtName}) στο επίπεδό σου. Θες να το κλείσεις;`;
+// Μετατρέπει την ημερομηνία του κενού σε φυσική ένδειξη ημέρας
+// ("σήμερα"/"αύριο"/όνομα ημέρας) αντί για ξερή ημερομηνία — πιο φυσικό
+// μήνυμα προς τον παίκτη.
+function dayLabel(dateStr, lang) {
+  if (!dateStr) return "";
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowISO = tomorrow.toISOString().slice(0, 10);
+
+  if (dateStr === todayISO) return lang === "en" ? "today" : "σήμερα";
+  if (dateStr === tomorrowISO) return lang === "en" ? "tomorrow" : "αύριο";
+
+  const d = new Date(`${dateStr}T00:00:00`);
+  return d.toLocaleDateString(lang === "en" ? "en-GB" : "el-GR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+// Ευγενικό/διακριτικό μήνυμα που ρωτάει (όχι επιβεβαιώνει) αν ο παίκτης
+// μπορεί να παίξει τη συγκεκριμένη ώρα — σε Ελληνικά ή Αγγλικά.
+function buildMessage(player, gapInfo, lang) {
+  const when = dayLabel(gapInfo.date, lang);
+  if (lang === "en") {
+    return `Hi ${player.name}! Can you play padel ${when} at ${gapInfo.time} at ${gapInfo.courtName}?`;
+  }
+  return `Γεια σου ${player.name}! Μπορείς να παίξεις padel ${when} στις ${gapInfo.time} στο ${gapInfo.courtName};`;
+}
+
+function sendGapNotification(player, gapInfo, lang = "el") {
+  const safeLang = lang === "en" ? "en" : "el";
+  const message = buildMessage(player, gapInfo, safeLang);
   const whatsappUrl = buildWhatsAppLink(player.phone, message);
   const entry = {
     id: `n${log.length + 1}`,
     playerId: player.id,
     playerName: player.name,
     channel: whatsappUrl ? "whatsapp" : "app-notification",
+    lang: safeLang,
     message,
     whatsappUrl,
     gapId: gapInfo.gapId,

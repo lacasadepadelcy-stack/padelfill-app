@@ -140,6 +140,11 @@ async function showGapDetail(cellEl, gapId) {
     <span>έως</span>
     <input type="number" step="0.5" id="maxLevel" placeholder="π.χ. 4">
     <button id="applyRange">Εφαρμογή</button>
+    <span style="margin-left:8px;">Γλώσσα μηνύματος</span>
+    <select id="notifyLang">
+      <option value="el">Ελληνικά</option>
+      <option value="en">English</option>
+    </select>
   `;
   box.appendChild(filter);
 
@@ -173,10 +178,11 @@ async function showGapDetail(cellEl, gapId) {
       notifyBtn.addEventListener("click", async () => {
         notifyBtn.disabled = true;
         notifyBtn.textContent = "...";
+        const lang = document.getElementById("notifyLang")?.value || "el";
         const res = await fetch(`/api/gaps/${encodeURIComponent(gapId)}/notify`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ playerId: p.id, date: currentDate() }),
+          body: JSON.stringify({ playerId: p.id, date: currentDate(), lang }),
         });
         const result = await res.json();
         actions.innerHTML = "";
