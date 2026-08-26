@@ -299,8 +299,24 @@ async function getRealPlayers() {
   return players;
 }
 
+// Σταθερή, προτιμώμενη σειρά εμφάνισης γηπέδων στο πρόγραμμα (βάσει
+// ονόματος sponsor/γηπέδου). Ό,τι όνομα δεν βρίσκεται εδώ μπαίνει στο τέλος,
+// αλφαβητικά.
+const COURT_DISPLAY_ORDER = ["NETFLASH", "PAPAJOHNS", "MALLOUPAS", "G.P.N ELECTRICAL"];
+
+function sortCourtsByPreferredOrder(courts) {
+  return [...courts].sort((a, b) => {
+    const ia = COURT_DISPLAY_ORDER.indexOf(a.name);
+    const ib = COURT_DISPLAY_ORDER.indexOf(b.name);
+    const ra = ia === -1 ? COURT_DISPLAY_ORDER.length : ia;
+    const rb = ib === -1 ? COURT_DISPLAY_ORDER.length : ib;
+    if (ra !== rb) return ra - rb;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 async function getRealCourts() {
-  if (MANUAL_COURTS) return MANUAL_COURTS;
+  if (MANUAL_COURTS) return sortCourtsByPreferredOrder(MANUAL_COURTS);
   if (courtsCache.data && courtsCache.expiresAt > Date.now()) return courtsCache.data;
 
   // Χωρίς endpoint λίστας γηπέδων, τα «μαθαίνουμε» από τις κρατήσεις μιας
@@ -317,7 +333,7 @@ async function getRealCourts() {
   bookings.forEach((b) => {
     if (!seen.has(b.resource_id)) seen.set(b.resource_id, b.resource_name || b.resource_id);
   });
-  const courts = Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
+  const courts = sortCourtsByPreferredOrder(Array.from(seen.entries()).map(([id, name]) => ({ id, name })));
   courtsCache = { data: courts, expiresAt: Date.now() + 60 * 60 * 1000 };
   return courts;
 }
