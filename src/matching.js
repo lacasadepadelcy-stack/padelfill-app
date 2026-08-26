@@ -283,13 +283,16 @@ async function buildWeeklyGaps(days = 7) {
 
         const gapId = slots[startIdx].gapId;
         // Ζητάμε μεγαλύτερη «δεξαμενή» υποψηφίων (10) από όσους θα δείξουμε
-        // τελικά (3), ώστε να έχουμε από τι να διαλέξουμε για ποικιλία.
+        // τελικά (4 — μια έτοιμη «παρέα» για το κενό), ώστε να έχουμε από τι
+        // να διαλέξουμε για ποικιλία.
         const { targetLevel, suggestions: pool } = await suggestPlayersForGap(gapId, date, { limit: 10 });
 
         const ranked = [...pool].sort(
           (a, b) => (suggestionUsage.get(a.id) || 0) - (suggestionUsage.get(b.id) || 0)
         );
-        const chosen = ranked.slice(0, 3);
+        // 4 άτομα = μια πλήρης, έτοιμη παρέα για να γεμίσει το γήπεδο (όχι
+        // μεμονωμένα ονόματα χωρίς σχέση μεταξύ τους).
+        const chosen = ranked.slice(0, 4);
         chosen.forEach((p) => suggestionUsage.set(p.id, (suggestionUsage.get(p.id) || 0) + 1));
 
         dayEntries.push({
@@ -315,4 +318,46 @@ async function buildWeeklyGaps(days = 7) {
   return report;
 }
 
-module.exports = { buildSchedule, suggestPlayersForGap, buildDashboard, buildWeeklyGaps };
+// Στατιστικά κενών ανά ημέρα και ανά ώρα, μέσα στις επόμενες `days` ημέρες —
+// για να φαίνεται ποια μέρα/ώρα έχει τα περισσότερα κενά (πού αξίζει να
+// ρίξει κανείς προσφορές/προσπάθεια πρώτα).
+async function buildWeeklyStats(days = 7) {
+  const dates = playtomic.getUpcomingDates(days);
+  const byDay = [];
+  const byHour = {}; // time -> { gapCount, totalCount }
+
+  for (const { date, label } of dates) {
+    const schedule = await buildSchedule(date);
+    let totalSlots = 0;
+    let gapSlots = 0;
+    schedule.forEach(({ slots }) => {
+      slots.forEach((s) => {
+        totalSlots += 1;
+        if (!byHour[s.time]) byHour[s.time] = { gapCount: 0, totalCount: 0 };
+        byHour[s.time].totalCount += 1;
+        if (s.status === "gap") {
+          gapSlots += 1;
+          byHour[s.time].gapCount += 1;
+        }
+      });
+    });
+    byDay.push({
+      date,
+      label,
+      totalSlots,
+      gapSlots,
+      gapPct: totalSlots ? Math.round((gapSlots / totalSlots) * 100) : 0,
+    });
+  }
+
+  const byHourArr = Object.entries(byHour)
+    .map(([time, v]) => ({
+      time,
+      gapPct: v.totalCount ? Math.round((v.gapCount / v.totalCount) * 100) : 0,
+    }))
+    .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+
+  return { byDay, byHour: byHourArr };
+}
+
+module.exports = { buildSchedule, suggestPlayersForGap, buildDashboard, buildWeeklyGaps, buildWeeklyStats };

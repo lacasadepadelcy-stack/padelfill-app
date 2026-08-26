@@ -8,6 +8,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { URL } = require("url");
 
 const playtomic = require("./src/playtomicClient");
@@ -15,6 +16,47 @@ const matching = require("./src/matching");
 const swipeModule = require("./src/swipe");
 const notifications = require("./src/notifications");
 const history = require("./src/history");
+
+// ============================================================
+// Απλό login (ένας μόνο λογαριασμός — ο ιδιοκτήτης του club). Στοιχεία
+// σύνδεσης ΔΕΝ μπαίνουν ποτέ στον κώδικα· ορίζονται ως environment
+// variables στο hosting (Render -> Environment): ADMIN_USERNAME, ADMIN_PASSWORD.
+// Sessions κρατιούνται in-memory (ένα session cookie ανά browser).
+// ============================================================
+const SESSION_COOKIE = "pf_session";
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 μέρες
+const sessions = new Map(); // token -> { expiresAt }
+
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  const cookies = {};
+  header.split(";").forEach((pair) => {
+    const idx = pair.indexOf("=");
+    if (idx === -1) return;
+    const key = pair.slice(0, idx).trim();
+    const val = pair.slice(idx + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(val);
+  });
+  return cookies;
+}
+
+function createSession() {
+  const token = crypto.randomBytes(24).toString("hex");
+  sessions.set(token, { expiresAt: Date.now() + SESSION_TTL_MS });
+  return token;
+}
+
+function isValidSession(req) {
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (!token) return false;
+  const session = sessions.get(token);
+  if (!session) return false;
+  if (session.expiresAt < Date.now()) {
+    sessions.delete(token);
+    return false;
+  }
+  return true;
+}
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 const MIME = { ".html": "text/html", ".js": "application/javascript", ".css": "text/css" };
@@ -74,6 +116,57 @@ const server = http.createServer(async (req, res) => {
   const { pathname, searchParams } = url;
 
   try {
+    if (pathname === "/api/login" && req.method === "POST") {
+      const body = await readBody(req);
+      const { username, password } = body;
+      const validUser = process.env.ADMIN_USERNAME;
+      const validPass = process.env.ADMIN_PASSWORD;
+      if (!validUser || !validPass) {
+        return sendJSON(res, 500, {
+          error: "Δεν έχουν οριστεί ακόμα ADMIN_USERNAME / ADMIN_PASSWORD στο hosting (Render -> Environment).",
+        });
+      }
+      if (username !== validUser || password !== validPass) {
+        return sendJSON(res, 401, { error: "Λάθος όνομα χρήστη ή κωδικός" });
+      }
+      const token = createSession();
+      res.setHeader(
+        "Set-Cookie",
+        `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; SameSite=Lax`
+      );
+      return sendJSON(res, 200, { ok: true });
+    }
+
+    if (pathname === "/api/logout" && req.method === "POST") {
+      const token = parseCookies(req)[SESSION_COOKIE];
+      if (token) sessions.delete(token);
+      res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
+      return sendJSON(res, 200, { ok: true });
+    }
+
+    if (pathname === "/api/me" && req.method === "GET") {
+      return sendJSON(res, 200, { authenticated: isValidSession(req) });
+    }
+
+    // Δημόσιο, μόνο-ανάγνωσης endpoint (ΧΩΡΙΣ ονόματα/τηλέφωνα παικτών) — το
+    // χρησιμοποιεί το αυτόματο πρωινό μήνυμα (scheduled task) που δεν μπορεί
+    // να συνδεθεί με τα προσωπικά στοιχεία διαχειριστή.
+    if (pathname === "/api/public/today-summary" && req.method === "GET") {
+      const report = await matching.buildWeeklyGaps(1);
+      const gaps = report.map((g) => ({
+        court: g.court.name,
+        startTime: g.startTime,
+        endTime: g.endTime,
+        gapMinutes: g.gapMinutes,
+      }));
+      return sendJSON(res, 200, { date: todayISO(), gaps });
+    }
+
+    // Όλα τα υπόλοιπα /api/* endpoints απαιτούν έγκυρη σύνδεση.
+    if (pathname.startsWith("/api/") && !isValidSession(req)) {
+      return sendJSON(res, 401, { error: "Απαιτείται σύνδεση" });
+    }
+
     if (pathname === "/api/dates" && req.method === "GET") {
       return sendJSON(res, 200, { dates: playtomic.getUpcomingDates(7) });
     }
@@ -137,6 +230,11 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/gaps/weekly" && req.method === "GET") {
       const days = parseInt(searchParams.get("days"), 10) || 7;
       return sendJSON(res, 200, { report: await matching.buildWeeklyGaps(days) });
+    }
+
+    if (pathname === "/api/stats/weekly" && req.method === "GET") {
+      const days = parseInt(searchParams.get("days"), 10) || 7;
+      return sendJSON(res, 200, await matching.buildWeeklyStats(days));
     }
 
     const historyMatch = pathname.match(/^\/api\/players\/([^/]+)\/history$/);

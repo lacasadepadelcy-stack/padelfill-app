@@ -1,3 +1,21 @@
+// Αν οποιοδήποτε fetch γυρίσει 401 (μη συνδεδεμένος / έληξε το session),
+// στέλνουμε αυτόματα στη σελίδα σύνδεσης — έτσι δεν χρειάζεται να το
+// ελέγχει ξεχωριστά κάθε συνάρτηση που κάνει fetch.
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await nativeFetch(...args);
+  const url = String(args[0] || "");
+  if (res.status === 401 && !url.includes("/api/login")) {
+    window.location.href = "/login.html";
+  }
+  return res;
+};
+
+document.getElementById("logoutBtn")?.addEventListener("click", async () => {
+  await fetch("/api/logout", { method: "POST" });
+  window.location.href = "/login.html";
+});
+
 const navBtns = document.querySelectorAll(".navbtn");
 const views = {
   schedule: document.getElementById("view-schedule"),
@@ -319,6 +337,9 @@ async function loadWeeklyGaps() {
       notifyAllBtn.addEventListener("click", () => notifyAll(gap, pendingPlayers, notifyAllBtn, card, notifiedMap, getLang));
     }
     card.appendChild(titleRow);
+    if (gap.suggestions.length > 1) {
+      card.appendChild(el("p", `Προτεινόμενη παρέα (${gap.suggestions.length}/4)`, "sub"));
+    }
 
     if (!gap.suggestions.length) {
       card.appendChild(el("p", "Δεν βρέθηκαν κατάλληλοι παίκτες.", "sub"));
@@ -467,12 +488,14 @@ async function loadSwipeCandidate() {
 
 async function loadDashboard() {
   await ensureDates();
-  const [res, statsRes] = await Promise.all([
+  const [res, statsRes, weeklyStatsRes] = await Promise.all([
     fetch(`/api/dashboard?date=${currentDate()}`),
     fetch("/api/notifications/stats"),
+    fetch("/api/stats/weekly?days=7"),
   ]);
   const data = await res.json();
   const stats = await statsRes.json();
+  const weeklyStats = await weeklyStatsRes.json();
   const container = views.dash;
   container.innerHTML = "";
   const metrics = document.createElement("div");
@@ -491,6 +514,19 @@ async function loadDashboard() {
     notifMetrics.appendChild(metric("Χωρίς αποτέλεσμα ακόμα", `${stats.pending}`));
     container.appendChild(notifMetrics);
   }
+
+  if (weeklyStats.byDay?.length) {
+    const worstDay = [...weeklyStats.byDay].sort((a, b) => b.gapPct - a.gapPct)[0];
+    const worstHour = [...weeklyStats.byHour].sort((a, b) => b.gapPct - a.gapPct)[0];
+    const weekMetrics = document.createElement("div");
+    weekMetrics.className = "metrics";
+    weekMetrics.style.marginTop = "12px";
+    weekMetrics.appendChild(metric("Πιο «αδύναμη» μέρα (7 μέρες)", `${worstDay.label} · ${worstDay.gapPct}% κενά`));
+    if (worstHour) {
+      weekMetrics.appendChild(metric("Πιο «αδύναμη» ώρα (7 μέρες)", `${worstHour.time} · ${worstHour.gapPct}% κενά`));
+    }
+    container.appendChild(weekMetrics);
+  }
 }
 
 function metric(label, value) {
@@ -506,4 +542,12 @@ function el(tag, text, className) {
   return node;
 }
 
-setView("schedule");
+(async () => {
+  const res = await nativeFetch("/api/me");
+  const data = await res.json();
+  if (!data.authenticated) {
+    window.location.href = "/login.html";
+    return;
+  }
+  setView("schedule");
+})();
