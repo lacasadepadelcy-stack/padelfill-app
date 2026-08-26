@@ -75,15 +75,21 @@ async function loadSchedule() {
         const lbl = s.type === "training" ? "Μάθημα" : "Παιχνίδι";
         const cell = document.createElement("div");
         cell.className = `slot booked ${s.type}${s.isContinuation ? " continuation" : ""}`;
+        // Δείχνουμε πάντα ρητά "ώρα έναρξης – ώρα λήξης" (όχι μόνο έμμεσα
+        // μέσω του "συνέχεια"), ώστε να είναι ξεκάθαρο πότε ακριβώς
+        // τελειώνει το κάθε παιχνίδι/μάθημα.
+        const timeRangeHtml = s.startTime && s.endTime
+          ? `<div class="slot-time">${s.startTime}–${s.endTime}</div>`
+          : "";
         if (s.isContinuation) {
           // Ίδιο παιχνίδι που συνεχίζεται από προηγούμενο slot — δεν
           // επαναλαμβάνουμε τα ονόματα, μόνο μια ένδειξη "συνέχεια".
-          cell.innerHTML = `<div class="slot-type">${lbl}</div><div class="slot-players">(συνέχεια)</div>`;
+          cell.innerHTML = `<div class="slot-type">${lbl}</div><div class="slot-players">(συνέχεια)</div>${timeRangeHtml}`;
         } else {
           const namesHtml = (s.players || [])
             .map((p) => `${p.name}${typeof p.level === "number" ? ` (${p.level})` : ""}`)
             .join(", ");
-          cell.innerHTML = `<div class="slot-type">${lbl}</div>${namesHtml ? `<div class="slot-players">${namesHtml}</div>` : ""}`;
+          cell.innerHTML = `<div class="slot-type">${lbl}</div>${namesHtml ? `<div class="slot-players">${namesHtml}</div>` : ""}${timeRangeHtml}`;
         }
         grid.appendChild(cell);
       } else {

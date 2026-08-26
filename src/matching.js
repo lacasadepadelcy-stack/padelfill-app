@@ -17,6 +17,12 @@ function timeToMinutes(t) {
   return h * 60 + m;
 }
 
+function minutesToTime(mins) {
+  const h = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 async function buildSchedule(date) {
   const courts = await playtomic.getCourts();
   const bookings = await playtomic.getBookingsForDate(date);
@@ -44,11 +50,15 @@ async function buildSchedule(date) {
         return slotMin >= startMin && slotMin < endMin;
       });
       if (booking) {
+        const startMin = timeToMinutes(booking.time);
+        const endMin = startMin + (booking.duration || 90);
         return {
           time,
           status: "booked",
           type: booking.type,
           isContinuation: booking.time !== time,
+          startTime: booking.time,
+          endTime: minutesToTime(endMin),
           players: booking.players.map((id) => playerById[id]).filter(Boolean),
         };
       }
