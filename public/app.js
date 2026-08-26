@@ -62,42 +62,64 @@ async function loadSchedule() {
   grid.className = "grid";
   grid.style.gridTemplateColumns = `56px repeat(${courts.length}, 1fr)`;
 
-  // Επικεφαλίδα: κενό κελί (γωνία) + ένα όνομα γηπέδου ανά στήλη
-  grid.appendChild(el("div", ""));
-  courts.forEach((c) => grid.appendChild(el("div", c.name, "hdr courtname")));
+  // Τοποθετούμε κάθε κελί σε ρητή στήλη/γραμμή (αντί να βασιζόμαστε στη
+  // σειρά προσθήκης) ώστε ένα παιχνίδι να μπορεί να "απλώνεται" σε πολλές
+  // γραμμές (grid-row span) χωρίς να μπερδεύεται η υπόλοιπη διάταξη.
+  function placeCell(node, col, row, rowSpan = 1) {
+    node.style.gridColumn = String(col);
+    node.style.gridRow = rowSpan > 1 ? `${row} / span ${rowSpan}` : String(row);
+    grid.appendChild(node);
+  }
 
-  // Μία γραμμή ανά ώρα, ένα κελί ανά γήπεδο σε αυτή τη γραμμή
-  hours.forEach((time, hIdx) => {
-    grid.appendChild(el("div", time, "rowlabel"));
-    data.schedule.forEach(({ slots }) => {
+  // Επικεφαλίδα (γραμμή 1): κενό κελί (γωνία) + ένα όνομα γηπέδου ανά στήλη
+  placeCell(el("div", ""), 1, 1);
+  courts.forEach((c, ci) => placeCell(el("div", c.name, "hdr courtname"), ci + 2, 1));
+
+  // Ετικέτες ωρών στην αριστερή στήλη, μία ανά γραμμή
+  hours.forEach((time, hIdx) => placeCell(el("div", time, "rowlabel"), 1, hIdx + 2));
+
+  // Ένα κελί ανά κράτηση (όχι ανά μισή ώρα): το κάθε παιχνίδι/μάθημα
+  // εμφανίζεται ΜΙΑ φορά σαν ενιαίο κελί που απλώνεται σε όσες γραμμές
+  // αντιστοιχούν στη διάρκειά του — όπως ακριβώς στο πραγματικό Playtomic.
+  data.schedule.forEach(({ slots }, ci) => {
+    const col = ci + 2;
+    let hIdx = 0;
+    while (hIdx < slots.length) {
       const s = slots[hIdx];
+      const row = hIdx + 2;
+
       if (s.status === "booked") {
+        // Μετράμε πόσα συνεχόμενα slots ανήκουν στην ΙΔΙΑ κράτηση
+        // (ίδια ώρα έναρξης/λήξης) ώστε να ξέρουμε πόσες γραμμές να
+        // καλύψει το ενιαίο κελί.
+        let span = 1;
+        while (
+          hIdx + span < slots.length &&
+          slots[hIdx + span].status === "booked" &&
+          slots[hIdx + span].startTime === s.startTime &&
+          slots[hIdx + span].endTime === s.endTime
+        ) {
+          span += 1;
+        }
+
         const lbl = s.type === "training" ? "Μάθημα" : "Παιχνίδι";
         const cell = document.createElement("div");
-        cell.className = `slot booked ${s.type}${s.isContinuation ? " continuation" : ""}`;
-        // Δείχνουμε πάντα ρητά "ώρα έναρξης – ώρα λήξης" (όχι μόνο έμμεσα
-        // μέσω του "συνέχεια"), ώστε να είναι ξεκάθαρο πότε ακριβώς
-        // τελειώνει το κάθε παιχνίδι/μάθημα.
-        const timeRangeHtml = s.startTime && s.endTime
-          ? `<div class="slot-time">${s.startTime}–${s.endTime}</div>`
-          : "";
-        if (s.isContinuation) {
-          // Ίδιο παιχνίδι που συνεχίζεται από προηγούμενο slot — δεν
-          // επαναλαμβάνουμε τα ονόματα, μόνο μια ένδειξη "συνέχεια".
-          cell.innerHTML = `<div class="slot-type">${lbl}</div><div class="slot-players">(συνέχεια)</div>${timeRangeHtml}`;
-        } else {
-          const namesHtml = (s.players || [])
-            .map((p) => `${p.name}${typeof p.level === "number" ? ` (${p.level})` : ""}`)
-            .join(", ");
-          cell.innerHTML = `<div class="slot-type">${lbl}</div>${namesHtml ? `<div class="slot-players">${namesHtml}</div>` : ""}${timeRangeHtml}`;
-        }
-        grid.appendChild(cell);
+        cell.className = `slot booked ${s.type}`;
+        const namesHtml = (s.players || [])
+          .map((p) => `${p.name}${typeof p.level === "number" ? ` (${p.level})` : ""}`)
+          .join(", ");
+        const timeRangeHtml = s.startTime && s.endTime ? `<div class="slot-time">${s.startTime}–${s.endTime}</div>` : "";
+        cell.innerHTML = `<div class="slot-type">${lbl}</div>${namesHtml ? `<div class="slot-players">${namesHtml}</div>` : ""}${timeRangeHtml}`;
+        placeCell(cell, col, row, span);
+
+        hIdx += span;
       } else {
         const cell = el("div", "Κενό", "slot gap");
         cell.addEventListener("click", () => showGapDetail(cell, s.gapId));
-        grid.appendChild(cell);
+        placeCell(cell, col, row);
+        hIdx += 1;
       }
-    });
+    }
   });
 
   scheduleWrap.appendChild(grid);
