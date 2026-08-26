@@ -240,6 +240,29 @@ async function fetchAllPlayers() {
 
 const TRAINING_TYPES = new Set(["PRIVATE_CLASS", "COURSE_CLASS", "PUBLIC_CLASS"]);
 
+function timeToMinutes(t) {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+// Υπολογίζει τη διάρκεια μιας κράτησης σε λεπτά, ώστε το πρόγραμμα να μπορεί
+// να τη δείχνει "κρατημένη" σε ΟΛΑ τα slots που καλύπτει (όχι μόνο στην ώρα
+// έναρξης) — π.χ. ένα παιχνίδι 90 λεπτών πρέπει να γεμίζει 3 slots των 30'.
+function bookingDurationMinutes(raw) {
+  if (typeof raw.duration === "number" && raw.duration > 0) return raw.duration;
+  if (raw.booking_start_date && raw.booking_end_date) {
+    const start = new Date(
+      /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw.booking_start_date) ? raw.booking_start_date : `${raw.booking_start_date}Z`
+    );
+    const end = new Date(
+      /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw.booking_end_date) ? raw.booking_end_date : `${raw.booking_end_date}Z`
+    );
+    const diffMin = Math.round((end.getTime() - start.getTime()) / 60000);
+    if (diffMin > 0) return diffMin;
+  }
+  return 90; // εύλογη προεπιλογή αν το API δεν δώσει διάρκεια/ώρα λήξης
+}
+
 function mapPlayer(raw) {
   const padel = (raw.sports || []).find((s) => s.sport_id === "PADEL");
   return {
@@ -310,6 +333,7 @@ async function getRealBookingsForDate(dateStr) {
         date,
         court: b.resource_id,
         time,
+        duration: bookingDurationMinutes(b),
         type: TRAINING_TYPES.has(b.booking_type) ? "training" : "game",
         players: (b.participant_info?.participants || []).map((p) => p.participant_id),
       };

@@ -12,6 +12,11 @@ const playtomic = require("./playtomicClient");
 
 const LEVEL_TOLERANCE = 0.5; // πόσο μπορεί να διαφέρει το επίπεδο για να θεωρηθεί "ταίρι"
 
+function timeToMinutes(t) {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
 async function buildSchedule(date) {
   const courts = await playtomic.getCourts();
   const bookings = await playtomic.getBookingsForDate(date);
@@ -27,12 +32,23 @@ async function buildSchedule(date) {
 
   const schedule = courts.map((court) => {
     const slots = hours.map((time) => {
-      const booking = bookings.find((b) => b.court === court.id && b.time === time);
+      const slotMin = timeToMinutes(time);
+      // Μια κράτηση "καλύπτει" ΟΛΑ τα slots από την ώρα έναρξης μέχρι
+      // ώρα έναρξης + διάρκεια (π.χ. ένα παιχνίδι 90' καλύπτει 3 slots των
+      // 30'), όχι μόνο το slot της ακριβούς ώρας έναρξης — αλλιώς οι
+      // επόμενες μισές ώρες θα φαίνονταν λανθασμένα "Κενό".
+      const booking = bookings.find((b) => {
+        if (b.court !== court.id) return false;
+        const startMin = timeToMinutes(b.time);
+        const endMin = startMin + (b.duration || 90);
+        return slotMin >= startMin && slotMin < endMin;
+      });
       if (booking) {
         return {
           time,
           status: "booked",
           type: booking.type,
+          isContinuation: booking.time !== time,
           players: booking.players.map((id) => playerById[id]).filter(Boolean),
         };
       }
@@ -71,8 +87,18 @@ async function suggestPlayersForGap(gapId, date, options = {}) {
     }
   }
 
+  // "Απασχολημένος τώρα" σημαίνει ότι η κράτησή του καλύπτει αυτή την ώρα
+  // (όχι μόνο ότι ξεκινάει ακριβώς σε αυτήν) — π.χ. αν παίζει από τις 17:30
+  // ένα παιχνίδι 90', είναι ακόμα απασχολημένος στις 18:00 και 18:30.
+  const slotMin = timeToMinutes(time);
   const alreadyBookedNow = new Set(
-    bookings.filter((b) => b.time === time).flatMap((b) => b.players)
+    bookings
+      .filter((b) => {
+        const startMin = timeToMinutes(b.time);
+        const endMin = startMin + (b.duration || 90);
+        return slotMin >= startMin && slotMin < endMin;
+      })
+      .flatMap((b) => b.players)
   );
 
   const hasManualRange = typeof options.minLevel === "number" || typeof options.maxLevel === "number";

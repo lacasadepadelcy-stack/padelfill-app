@@ -74,11 +74,17 @@ async function loadSchedule() {
       if (s.status === "booked") {
         const lbl = s.type === "training" ? "Μάθημα" : "Παιχνίδι";
         const cell = document.createElement("div");
-        cell.className = `slot booked ${s.type}`;
-        const namesHtml = (s.players || [])
-          .map((p) => `${p.name}${typeof p.level === "number" ? ` (${p.level})` : ""}`)
-          .join(", ");
-        cell.innerHTML = `<div class="slot-type">${lbl}</div>${namesHtml ? `<div class="slot-players">${namesHtml}</div>` : ""}`;
+        cell.className = `slot booked ${s.type}${s.isContinuation ? " continuation" : ""}`;
+        if (s.isContinuation) {
+          // Ίδιο παιχνίδι που συνεχίζεται από προηγούμενο slot — δεν
+          // επαναλαμβάνουμε τα ονόματα, μόνο μια ένδειξη "συνέχεια".
+          cell.innerHTML = `<div class="slot-type">${lbl}</div><div class="slot-players">(συνέχεια)</div>`;
+        } else {
+          const namesHtml = (s.players || [])
+            .map((p) => `${p.name}${typeof p.level === "number" ? ` (${p.level})` : ""}`)
+            .join(", ");
+          cell.innerHTML = `<div class="slot-type">${lbl}</div>${namesHtml ? `<div class="slot-players">${namesHtml}</div>` : ""}`;
+        }
         grid.appendChild(cell);
       } else {
         const cell = el("div", "Κενό", "slot gap");
