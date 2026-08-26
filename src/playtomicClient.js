@@ -248,8 +248,14 @@ function timeToMinutes(t) {
 // Υπολογίζει τη διάρκεια μιας κράτησης σε λεπτά, ώστε το πρόγραμμα να μπορεί
 // να τη δείχνει "κρατημένη" σε ΟΛΑ τα slots που καλύπτει (όχι μόνο στην ώρα
 // έναρξης) — π.χ. ένα παιχνίδι 90 λεπτών πρέπει να γεμίζει 3 slots των 30'.
+// Λογικό ανώτατο όριο διάρκειας κράτησης (4 ώρες) — προστασία σε περίπτωση
+// που κάποιο πεδίο του API έρθει σε λάθος μονάδα (π.χ. δευτερόλεπτα αντί για
+// λεπτά), κάτι που θα έκανε μια κράτηση να "καλύπτει" όλη τη μέρα.
+const MAX_REASONABLE_DURATION_MIN = 240;
+
 function bookingDurationMinutes(raw) {
-  if (typeof raw.duration === "number" && raw.duration > 0) return raw.duration;
+  // Προτεραιότητα στην πραγματική ώρα λήξης (πιο αξιόπιστη πηγή, ανεξάρτητη
+  // από μονάδες μέτρησης) — αν λείπει, δοκιμάζουμε το πεδίο duration.
   if (raw.booking_start_date && raw.booking_end_date) {
     const start = new Date(
       /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw.booking_start_date) ? raw.booking_start_date : `${raw.booking_start_date}Z`
@@ -258,9 +264,12 @@ function bookingDurationMinutes(raw) {
       /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw.booking_end_date) ? raw.booking_end_date : `${raw.booking_end_date}Z`
     );
     const diffMin = Math.round((end.getTime() - start.getTime()) / 60000);
-    if (diffMin > 0) return diffMin;
+    if (diffMin > 0 && diffMin <= MAX_REASONABLE_DURATION_MIN) return diffMin;
   }
-  return 90; // εύλογη προεπιλογή αν το API δεν δώσει διάρκεια/ώρα λήξης
+  if (typeof raw.duration === "number" && raw.duration > 0 && raw.duration <= MAX_REASONABLE_DURATION_MIN) {
+    return raw.duration;
+  }
+  return 90; // εύλογη προεπιλογή αν το API δεν δώσει έγκυρη διάρκεια/ώρα λήξης
 }
 
 function mapPlayer(raw) {
