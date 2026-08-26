@@ -86,4 +86,16 @@ function getLog() {
   return log.slice().reverse();
 }
 
-module.exports = { sendGapNotification, getLog };
+// Ids παικτών που έχουν ειδοποιηθεί (για ΟΠΟΙΟΔΗΠΟΤΕ κενό) τις τελευταίες
+// `hours` ώρες — χρησιμοποιείται από το matching.js ώστε να μην προτείνουμε
+// συνέχεια τους ίδιους παίκτες μέρα με τη μέρα.
+function getRecentlyNotifiedIds(hours = 48) {
+  const cutoff = Date.now() - hours * 60 * 60 * 1000;
+  const ids = new Set();
+  log.forEach((n) => {
+    if (new Date(n.sentAt).getTime() >= cutoff) ids.add(n.playerId);
+  });
+  return ids;
+}
+
+module.exports = { sendGapNotification, getLog, getRecentlyNotifiedIds };

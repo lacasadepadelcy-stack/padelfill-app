@@ -9,8 +9,31 @@
 // κάνει πραγματικά HTTP calls προς το Playtomic API.
 
 const playtomic = require("./playtomicClient");
+const notifications = require("./notifications");
 
 const LEVEL_TOLERANCE = 0.5; // πόσο μπορεί να διαφέρει το επίπεδο για να θεωρηθεί "ταίρι"
+const RECENT_NOTIFY_HOURS = 48; // μετά από πόσες ώρες ξαναθεωρείται "φρέσκος" ένας παίκτης που ειδοποιήθηκε
+
+// Απλό, ντετερμινιστικό "ανακάτεμα" (ίδιο seed -> ίδιο αποτέλεσμα, ώστε η
+// σελίδα να μη δείχνει διαφορετικά ονόματα σε κάθε refresh, αλλά ΔΙΑΦΟΡΕΤΙΚΟ
+// αποτέλεσμα ανά κενό/ημέρα). Χρησιμοποιείται όταν ΔΕΝ έχουμε κάποια ένδειξη
+// επιπέδου (κανένα γειτονικό παιχνίδι) — ώστε να μην προτείνουμε πάντα τους
+// ίδιους (π.χ. πάντα τους χαμηλότερου επιπέδου) παίκτες, αλλά να καλύπτονται
+// διαφορετικά επίπεδα και διαφορετικοί πελάτες με τον καιρό.
+function seededShuffle(items, seed) {
+  let s = 0;
+  for (let i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) >>> 0;
+  const rand = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 function timeToMinutes(t) {
   const [h, m] = t.split(":").map(Number);
@@ -82,6 +105,7 @@ async function suggestPlayersForGap(gapId, date, options = {}) {
   const bookings = await playtomic.getBookingsForDate(date);
   const players = await playtomic.getPlayers();
   const hours = playtomic.getHours();
+  const limit = options.limit || 5;
 
   const idx = hours.indexOf(time);
   const neighborBookings = bookings.filter(
@@ -123,15 +147,33 @@ async function suggestPlayersForGap(gapId, date, options = {}) {
     candidates = candidates.filter((p) => Math.abs(p.level - targetLevel) <= LEVEL_TOLERANCE);
   }
 
-  candidates.sort((a, b) => {
-    if (targetLevel === null) return a.level - b.level;
-    return Math.abs(a.level - targetLevel) - Math.abs(b.level - targetLevel);
-  });
+  if (hasManualRange || targetLevel !== null) {
+    // Έχουμε συγκεκριμένη ένδειξη επιπέδου (χειροκίνητο εύρος ή γειτονικό
+    // παιχνίδι) -> ταξινόμηση με βάση αυτήν, όπως πριν.
+    candidates.sort((a, b) => {
+      if (hasManualRange) return a.level - b.level;
+      return Math.abs(a.level - targetLevel) - Math.abs(b.level - targetLevel);
+    });
+  } else {
+    // Καμία ένδειξη επιπέδου -> αντί να δείχνουμε πάντα τους ίδιους (πάντα
+    // τους χαμηλότερου επιπέδου, αφού πριν ταξινομούσαμε αύξουσα), κάνουμε
+    // ένα ντετερμινιστικό ανακάτεμα ώστε να αλλάζουν τα προτεινόμενα άτομα
+    // (και τα επίπεδά τους) ανά κενό/ημέρα.
+    candidates = seededShuffle(candidates, `${date}|${gapId}`);
+  }
+
+  // Όσοι έχουν ειδοποιηθεί πρόσφατα (τελευταίες 48 ώρες, για ΟΠΟΙΟΔΗΠΟΤΕ
+  // κενό) μετακινούνται στο τέλος της λίστας — έτσι δεν στέλνουμε συνέχεια
+  // μήνυμα στους ίδιους λίγους πελάτες, αλλά "γυρνάμε" σε διαφορετικούς.
+  const recentlyNotified = notifications.getRecentlyNotifiedIds(RECENT_NOTIFY_HOURS);
+  const fresh = candidates.filter((p) => !recentlyNotified.has(p.id));
+  const stale = candidates.filter((p) => recentlyNotified.has(p.id));
+  candidates = [...fresh, ...stale];
 
   return {
     targetLevel,
     levelRange: hasManualRange ? { minLevel, maxLevel } : null,
-    suggestions: candidates.slice(0, 5),
+    suggestions: candidates.slice(0, limit),
   };
 }
 
@@ -182,6 +224,11 @@ const CLOSING_TIME = "23:30"; // ώρα κλεισίματος club — χρησ
 async function buildWeeklyGaps(days = 7) {
   const dates = playtomic.getUpcomingDates(days);
   const report = [];
+  // Μετράει πόσες φορές έχει ήδη προταθεί ο κάθε παίκτης μέσα σε ΑΥΤΗ την
+  // αναφορά — ώστε, ανάμεσα σε ισοδύναμους υποψήφιους, να προηγούνται όσοι
+  // δεν έχουν προταθεί ακόμα (διαφορετικοί πελάτες σε κάθε κενό, όχι πάντα
+  // οι ίδιοι 2-3 άνθρωποι σε όλη την εβδομάδα).
+  const suggestionUsage = new Map();
 
   for (const { date, label } of dates) {
     const schedule = await buildSchedule(date);
@@ -204,7 +251,15 @@ async function buildWeeklyGaps(days = 7) {
         if (gapMinutes <= 0) continue;
 
         const gapId = slots[startIdx].gapId;
-        const { targetLevel, suggestions } = await suggestPlayersForGap(gapId, date);
+        // Ζητάμε μεγαλύτερη «δεξαμενή» υποψηφίων (10) από όσους θα δείξουμε
+        // τελικά (3), ώστε να έχουμε από τι να διαλέξουμε για ποικιλία.
+        const { targetLevel, suggestions: pool } = await suggestPlayersForGap(gapId, date, { limit: 10 });
+
+        const ranked = [...pool].sort(
+          (a, b) => (suggestionUsage.get(a.id) || 0) - (suggestionUsage.get(b.id) || 0)
+        );
+        const chosen = ranked.slice(0, 3);
+        chosen.forEach((p) => suggestionUsage.set(p.id, (suggestionUsage.get(p.id) || 0) + 1));
 
         dayEntries.push({
           date,
@@ -215,7 +270,7 @@ async function buildWeeklyGaps(days = 7) {
           gapMinutes,
           gapId,
           targetLevel,
-          suggestions: suggestions.slice(0, 3),
+          suggestions: chosen,
         });
       }
     }
