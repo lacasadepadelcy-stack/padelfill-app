@@ -299,19 +299,24 @@ async function getRealPlayers() {
   return players;
 }
 
-// Σταθερή, προτιμώμενη σειρά εμφάνισης γηπέδων στο πρόγραμμα (βάσει
-// ονόματος sponsor/γηπέδου). Ό,τι όνομα δεν βρίσκεται εδώ μπαίνει στο τέλος,
-// αλφαβητικά.
-const COURT_DISPLAY_ORDER = ["NETFLASH", "PAPAJOHNS", "MALLOUPAS", "G.P.N ELECTRICAL"];
+// Σταθερή, προτιμώμενη σειρά εμφάνισης γηπέδων στο πρόγραμμα. Χρησιμοποιούμε
+// λέξεις-κλειδιά (όχι ακριβές όνομα) γιατί το πραγματικό όνομα από το
+// Playtomic μπορεί να έχει επιπλέον κείμενο (π.χ. "FOUR DAY CLEARANCE
+// MALLOUPAS" αντί για απλά "MALLOUPAS") ή διαφορετικά κεφαλαία/πεζά.
+const COURT_DISPLAY_ORDER = ["NETFLASH", "PAPAJOHNS", "MALLOUPAS", "ELECTRICAL"];
+
+function matchOrderIndex(name) {
+  const upper = (name || "").toUpperCase();
+  const idx = COURT_DISPLAY_ORDER.findIndex((keyword) => upper.includes(keyword));
+  return idx === -1 ? COURT_DISPLAY_ORDER.length : idx;
+}
 
 function sortCourtsByPreferredOrder(courts) {
   return [...courts].sort((a, b) => {
-    const ia = COURT_DISPLAY_ORDER.indexOf(a.name);
-    const ib = COURT_DISPLAY_ORDER.indexOf(b.name);
-    const ra = ia === -1 ? COURT_DISPLAY_ORDER.length : ia;
-    const rb = ib === -1 ? COURT_DISPLAY_ORDER.length : ib;
+    const ra = matchOrderIndex(a.name);
+    const rb = matchOrderIndex(b.name);
     if (ra !== rb) return ra - rb;
-    return a.name.localeCompare(b.name);
+    return (a.name || "").localeCompare(b.name || "");
   });
 }
 
