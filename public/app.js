@@ -173,13 +173,19 @@ async function showGapDetail(cellEl, gapId) {
       notifyBtn.addEventListener("click", async () => {
         notifyBtn.disabled = true;
         notifyBtn.textContent = "...";
-        await fetch(`/api/gaps/${encodeURIComponent(gapId)}/notify`, {
+        const res = await fetch(`/api/gaps/${encodeURIComponent(gapId)}/notify`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ playerId: p.id, date: currentDate() }),
         });
+        const result = await res.json();
         actions.innerHTML = "";
         actions.appendChild(el("span", "Στάλθηκε ✓", "notified"));
+        // Ανοίγουμε αυτόματα το WhatsApp με το μήνυμα ήδη γραμμένο, ώστε
+        // ο χρήστης να χρειάζεται μόνο ένα κλικ "Αποστολή" στο WhatsApp.
+        if (result.notification?.whatsappUrl) {
+          window.open(result.notification.whatsappUrl, "_blank");
+        }
       });
       actions.appendChild(notifyBtn);
       row.appendChild(info);
