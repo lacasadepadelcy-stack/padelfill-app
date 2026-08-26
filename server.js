@@ -116,6 +116,19 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { notifications: notifications.getLog() });
     }
 
+    if (pathname === "/api/notifications/stats" && req.method === "GET") {
+      return sendJSON(res, 200, notifications.getStats());
+    }
+
+    const outcomeMatch = pathname.match(/^\/api\/notifications\/([^/]+)\/outcome$/);
+    if (outcomeMatch && req.method === "POST") {
+      const id = decodeURIComponent(outcomeMatch[1]);
+      const body = await readBody(req);
+      const entry = notifications.setOutcome(id, body.outcome);
+      if (!entry) return sendJSON(res, 404, { error: "Άγνωστη ειδοποίηση" });
+      return sendJSON(res, 200, { notification: entry });
+    }
+
     if (pathname === "/api/dashboard" && req.method === "GET") {
       const date = searchParams.get("date") || todayISO();
       return sendJSON(res, 200, await matching.buildDashboard(date));

@@ -78,8 +78,38 @@ function sendGapNotification(player, gapInfo, lang = "el") {
     whatsappUrl,
     gapId: gapInfo.gapId,
     sentAt: new Date().toISOString(),
+    // Αποτέλεσμα: null (άγνωστο ακόμα) / "booked" (έκλεισε γήπεδο) / "no"
+    // (δεν έκλεισε) — ενημερώνεται χειροκίνητα από το προσωπικό αργότερα,
+    // αφού δουν αν ο παίκτης πράγματι έκλεισε το κενό.
+    outcome: null,
   };
   return record(entry);
+}
+
+// Ενημερώνει το αποτέλεσμα μιας ήδη σταλμένης ειδοποίησης — πόσο "έπιασε"
+// στην πράξη, ώστε σιγά σιγά να φαίνεται ποιοι παίκτες πραγματικά
+// ανταποκρίνονται όταν τους ειδοποιούμε για ένα κενό.
+function setOutcome(notificationId, outcome) {
+  const entry = log.find((n) => n.id === notificationId);
+  if (!entry) return null;
+  entry.outcome = outcome === "booked" ? "booked" : outcome === "no" ? "no" : null;
+  return entry;
+}
+
+// Συγκεντρωτικά στατιστικά ανταπόκρισης — πόσες ειδοποιήσεις έχουν σταλεί
+// συνολικά, πόσες οδήγησαν σε πραγματικό κλείσιμο γηπέδου, κ.λπ.
+function getStats() {
+  const total = log.length;
+  const booked = log.filter((n) => n.outcome === "booked").length;
+  const no = log.filter((n) => n.outcome === "no").length;
+  const pending = total - booked - no;
+  return {
+    total,
+    booked,
+    no,
+    pending,
+    bookedPct: total ? Math.round((booked / total) * 100) : 0,
+  };
 }
 
 function getLog() {
@@ -98,4 +128,4 @@ function getRecentlyNotifiedIds(hours = 48) {
   return ids;
 }
 
-module.exports = { sendGapNotification, getLog, getRecentlyNotifiedIds };
+module.exports = { sendGapNotification, getLog, getRecentlyNotifiedIds, setOutcome, getStats };

@@ -156,14 +156,22 @@ async function showGapDetail(cellEl, gapId) {
   box.appendChild(list);
   cellEl.insertAdjacentElement("afterend", box);
 
+  const getLang = () => document.getElementById("notifyLang")?.value || "el";
+
   async function refresh() {
     const min = document.getElementById("minLevel").value;
     const max = document.getElementById("maxLevel").value;
     let url = `/api/gaps/${encodeURIComponent(gapId)}/suggestions?date=${currentDate()}`;
     if (min) url += `&minLevel=${min}`;
     if (max) url += `&maxLevel=${max}`;
-    const res = await fetch(url);
+    const [res, notifRes] = await Promise.all([fetch(url), fetch("/api/notifications")]);
     const data = await res.json();
+    const notifData = await notifRes.json();
+    const notifiedMap = new Map(
+      (notifData.notifications || [])
+        .filter((n) => n.gapId === gapId)
+        .map((n) => [n.playerId, n])
+    );
 
     title.textContent = data.levelRange
       ? `Παίκτες επιπέδου ${data.levelRange.minLevel} έως ${data.levelRange.maxLevel}`
@@ -173,37 +181,61 @@ async function showGapDetail(cellEl, gapId) {
 
     list.innerHTML = "";
     data.suggestions.forEach((p) => {
-      const row = el("div", "", "player");
-      const info = el("span", `${p.name} · Επίπεδο ${p.level}`);
-      const actions = el("div", "", "actions");
-      const notifyBtn = el("button", "Ειδοποίησε");
-      notifyBtn.addEventListener("click", async () => {
-        notifyBtn.disabled = true;
-        notifyBtn.textContent = "...";
-        const lang = document.getElementById("notifyLang")?.value || "el";
-        const res = await fetch(`/api/gaps/${encodeURIComponent(gapId)}/notify`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ playerId: p.id, date: currentDate(), lang }),
-        });
-        const result = await res.json();
-        actions.innerHTML = "";
-        actions.appendChild(el("span", "Στάλθηκε ✓", "notified"));
-        // Ανοίγουμε αυτόματα το WhatsApp με το μήνυμα ήδη γραμμένο, ώστε
-        // ο χρήστης να χρειάζεται μόνο ένα κλικ "Αποστολή" στο WhatsApp.
-        if (result.notification?.whatsappUrl) {
-          window.open(result.notification.whatsappUrl, "_blank");
-        }
-      });
-      actions.appendChild(notifyBtn);
-      row.appendChild(info);
-      row.appendChild(actions);
-      list.appendChild(row);
+      list.appendChild(
+        buildSuggestionRow({ gapId, date: currentDate() }, p, notifiedMap.get(p.id), getLang)
+      );
     });
   }
 
   document.getElementById("applyRange").addEventListener("click", refresh);
   refresh();
+}
+
+// Χτίζει τα στοιχεία ελέγχου "αποτελέσματος" για μια ήδη σταλμένη
+// ειδοποίηση: "✓ Έκλεισε" / "✕ Όχι" όσο δεν έχει σημειωθεί ακόμα αποτέλεσμα,
+// ή ένα ένδειξη-badge (κλικ για επαναφορά) όταν έχει ήδη σημειωθεί. Έτσι το
+// προσωπικό μπορεί να καταγράφει αν μια ειδοποίηση πραγματικά "έπιασε".
+function buildOutcomeControls(entry) {
+  const wrap = el("span", "", "outcome");
+
+  async function setOutcome(outcome) {
+    const res = await fetch(`/api/notifications/${encodeURIComponent(entry.id)}/outcome`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+    });
+    const result = await res.json();
+    if (result.notification) {
+      entry.outcome = result.notification.outcome;
+      render();
+    }
+  }
+
+  function render() {
+    wrap.innerHTML = "";
+    if (entry.outcome === "booked") {
+      const badge = el("span", "✅ Έκλεισε γήπεδο", "outcome-booked");
+      badge.title = "Πάτησε για επαναφορά";
+      badge.addEventListener("click", () => setOutcome(null));
+      wrap.appendChild(badge);
+    } else if (entry.outcome === "no") {
+      const badge = el("span", "✕ Δεν έκλεισε", "outcome-no");
+      badge.title = "Πάτησε για επαναφορά";
+      badge.addEventListener("click", () => setOutcome(null));
+      wrap.appendChild(badge);
+    } else {
+      wrap.appendChild(el("span", "Στάλθηκε ✓", "notified"));
+      const yesBtn = el("button", "✓ Έκλεισε", "outcome-btn");
+      const noBtn = el("button", "✕ Όχι", "outcome-btn");
+      yesBtn.addEventListener("click", () => setOutcome("booked"));
+      noBtn.addEventListener("click", () => setOutcome("no"));
+      wrap.appendChild(yesBtn);
+      wrap.appendChild(noBtn);
+    }
+  }
+
+  render();
+  return wrap;
 }
 
 // Μετατρέπει λεπτά σε σύντομη ένδειξη διάρκειας (π.χ. 90 -> "1ω30", 30 -> "30λ")
@@ -246,9 +278,13 @@ async function loadWeeklyGaps() {
   const notifData = await notifRes.json();
   container.removeChild(loadingMsg);
 
-  // Σύνολο "gapId|playerId" για γρήγορο έλεγχο ποιος έχει ήδη ειδοποιηθεί
-  // για συγκεκριμένο κενό — ώστε να μη στέλνουμε διπλό μήνυμα στον ίδιο.
-  const notifiedSet = new Set((notifData.notifications || []).map((n) => `${n.gapId}|${n.playerId}`));
+  // Χάρτης "gapId|playerId" -> notification ώστε να ξέρουμε ποιος έχει ήδη
+  // ειδοποιηθεί για συγκεκριμένο κενό (να μη στέλνουμε διπλό μήνυμα) ΚΑΙ να
+  // δείχνουμε/ενημερώνουμε το αποτέλεσμα (έκλεισε γήπεδο ή όχι).
+  const notifiedMap = new Map(
+    (notifData.notifications || []).map((n) => [`${n.gapId}|${n.playerId}`, n])
+  );
+  const getLang = () => document.getElementById("weeklyLang")?.value || "el";
 
   if (!data.report.length) {
     container.appendChild(el("p", "Δεν υπάρχουν κενά τις επόμενες 7 μέρες 🎉", "sub"));
@@ -276,11 +312,11 @@ async function loadWeeklyGaps() {
     const durationText = ` · ${formatDuration(gap.gapMinutes)} κενό`;
     titleRow.appendChild(el("div", `${gap.court.name} · ${timeRange}${levelText}${durationText}`, "gapcard-title"));
 
-    const pendingPlayers = gap.suggestions.filter((p) => !notifiedSet.has(`${gap.gapId}|${p.id}`));
+    const pendingPlayers = gap.suggestions.filter((p) => !notifiedMap.has(`${gap.gapId}|${p.id}`));
     if (pendingPlayers.length > 1) {
       const notifyAllBtn = el("button", `Ειδοποίησε όλους (${pendingPlayers.length})`);
       titleRow.appendChild(notifyAllBtn);
-      notifyAllBtn.addEventListener("click", () => notifyAll(gap, pendingPlayers, notifyAllBtn, card));
+      notifyAllBtn.addEventListener("click", () => notifyAll(gap, pendingPlayers, notifyAllBtn, card, notifiedMap, getLang));
     }
     card.appendChild(titleRow);
 
@@ -288,7 +324,7 @@ async function loadWeeklyGaps() {
       card.appendChild(el("p", "Δεν βρέθηκαν κατάλληλοι παίκτες.", "sub"));
     } else {
       gap.suggestions.forEach((p) => {
-        card.appendChild(buildSuggestionRow(gap, p, notifiedSet.has(`${gap.gapId}|${p.id}`)));
+        card.appendChild(buildSuggestionRow(gap, p, notifiedMap.get(`${gap.gapId}|${p.id}`), getLang));
       });
     }
 
@@ -296,21 +332,24 @@ async function loadWeeklyGaps() {
   });
 }
 
-// Χτίζει τη γραμμή ενός προτεινόμενου παίκτη, με κουμπί "Ειδοποίησε" ή
-// ένδειξη "Ήδη ειδοποιήθηκε" αν βρίσκεται ήδη στο ιστορικό.
-function buildSuggestionRow(gap, p, alreadyNotified) {
+// Χτίζει τη γραμμή ενός προτεινόμενου παίκτη: κουμπί "Ειδοποίησε" αν δεν
+// έχει ειδοποιηθεί ακόμα για αυτό το κενό, αλλιώς στοιχεία ελέγχου
+// αποτελέσματος (buildOutcomeControls) ώστε να σημειώνεται αν τελικά
+// έκλεισε το γήπεδο. `getLang` είναι συνάρτηση που επιστρέφει την επιλεγμένη
+// γλώσσα μηνύματος (διαφορετικό select id ανάλογα με την προβολή).
+function buildSuggestionRow(gap, p, existingEntry, getLang) {
   const row = el("div", "", "player");
   const info = el("span", `${p.name} · Επίπεδο ${p.level}`);
   const actions = el("div", "", "actions");
 
-  if (alreadyNotified) {
-    actions.appendChild(el("span", "Ήδη ειδοποιήθηκε ✓", "notified"));
+  if (existingEntry) {
+    actions.appendChild(buildOutcomeControls(existingEntry));
   } else {
     const notifyBtn = el("button", "Ειδοποίησε");
     notifyBtn.addEventListener("click", async () => {
       notifyBtn.disabled = true;
       notifyBtn.textContent = "...";
-      const lang = document.getElementById("weeklyLang")?.value || "el";
+      const lang = getLang ? getLang() : "el";
       const notifyRes = await fetch(`/api/gaps/${encodeURIComponent(gap.gapId)}/notify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -318,7 +357,9 @@ function buildSuggestionRow(gap, p, alreadyNotified) {
       });
       const result = await notifyRes.json();
       actions.innerHTML = "";
-      actions.appendChild(el("span", "Στάλθηκε ✓", "notified"));
+      if (result.notification) {
+        actions.appendChild(buildOutcomeControls(result.notification));
+      }
       if (result.notification?.whatsappUrl) {
         window.open(result.notification.whatsappUrl, "_blank");
       }
@@ -335,11 +376,12 @@ function buildSuggestionRow(gap, p, alreadyNotified) {
 // ένα κλικ. Ανοίγουμε τα WhatsApp tabs ΑΜΕΣΩΣ (synchronous, πριν από κανένα
 // await) ώστε ο browser να μην τα μπλοκάρει ως pop-ups, και μετά γεμίζουμε
 // το σωστό URL σε καθένα μόλις έρθει η απάντηση από τον server.
-async function notifyAll(gap, players, buttonEl, cardEl) {
+async function notifyAll(gap, players, buttonEl, cardEl, notifiedMap, getLang) {
   buttonEl.disabled = true;
   buttonEl.textContent = "...";
-  const lang = document.getElementById("weeklyLang")?.value || "el";
+  const lang = getLang ? getLang() : "el";
   const windows = players.map(() => window.open("", "_blank"));
+  const freshEntries = new Map(); // playerId -> notification που μόλις στάλθηκε
 
   for (let idx = 0; idx < players.length; idx++) {
     const p = players[idx];
@@ -350,6 +392,7 @@ async function notifyAll(gap, players, buttonEl, cardEl) {
         body: JSON.stringify({ playerId: p.id, date: gap.date, lang }),
       });
       const result = await notifyRes.json();
+      if (result.notification) freshEntries.set(p.id, result.notification);
       if (result.notification?.whatsappUrl && windows[idx]) {
         windows[idx].location = result.notification.whatsappUrl;
       } else if (windows[idx]) {
@@ -361,10 +404,12 @@ async function notifyAll(gap, players, buttonEl, cardEl) {
   }
 
   buttonEl.textContent = `Ειδοποιήθηκαν όλοι ✓ (${players.length})`;
-  // Ανανεώνουμε τις γραμμές παικτών ώστε να δείχνουν "Ήδη ειδοποιήθηκε".
+  // Ανανεώνουμε τις γραμμές παικτών ώστε να δείχνουν στοιχεία αποτελέσματος
+  // (είτε για τους μόλις ειδοποιημένους, είτε για όσους ήταν ήδη στο ιστορικό).
   cardEl.querySelectorAll(".player").forEach((row) => row.remove());
   gap.suggestions.forEach((p) => {
-    cardEl.appendChild(buildSuggestionRow(gap, p, true));
+    const entry = freshEntries.get(p.id) || notifiedMap.get(`${gap.gapId}|${p.id}`);
+    cardEl.appendChild(buildSuggestionRow(gap, p, entry, getLang));
   });
 }
 
@@ -422,8 +467,12 @@ async function loadSwipeCandidate() {
 
 async function loadDashboard() {
   await ensureDates();
-  const res = await fetch(`/api/dashboard?date=${currentDate()}`);
+  const [res, statsRes] = await Promise.all([
+    fetch(`/api/dashboard?date=${currentDate()}`),
+    fetch("/api/notifications/stats"),
+  ]);
   const data = await res.json();
+  const stats = await statsRes.json();
   const container = views.dash;
   container.innerHTML = "";
   const metrics = document.createElement("div");
@@ -432,6 +481,16 @@ async function loadDashboard() {
   metrics.appendChild(metric("Κενά", `${data.gapSlots}/${data.totalSlots}`));
   metrics.appendChild(metric("Μαθήματα vs παιχνίδια", `${data.trainingPct}% / ${data.gamePct}%`));
   container.appendChild(metrics);
+
+  if (stats.total > 0) {
+    const notifMetrics = document.createElement("div");
+    notifMetrics.className = "metrics";
+    notifMetrics.style.marginTop = "12px";
+    notifMetrics.appendChild(metric("Ειδοποιήσεις (σύνολο)", `${stats.total}`));
+    notifMetrics.appendChild(metric("Έκλεισαν γήπεδο", `${stats.booked} (${stats.bookedPct}%)`));
+    notifMetrics.appendChild(metric("Χωρίς αποτέλεσμα ακόμα", `${stats.pending}`));
+    container.appendChild(notifMetrics);
+  }
 }
 
 function metric(label, value) {

@@ -11,7 +11,7 @@
     --bg-accent:#e6f1fb; --text-accent:#0c447c;
     --bg-pro:#eeedfe; --text-pro:#3c3489;
     --bg-warning:#faeeda; --text-warning:#633806; --border-warning:#ef9f27;
-    --text-success:#27500a; --radius:8px;
+    --text-success:#27500a; --text-danger:#7a2323; --radius:8px;
   }
   body{ font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; background:var(--surface-0); color:var(--text-primary); margin:0; padding:2rem; }
   .wrap{ max-width:780px; margin:0 auto; }
@@ -56,6 +56,10 @@
   .dateheader:first-child{ margin-top:0; }
   .gapcard{ background:var(--surface-2); border:0.5px solid var(--border); border-radius:var(--radius); padding:0.9rem 1rem; margin-bottom:10px; }
   .gapcard-title{ font-weight:600; font-size:13px; margin-bottom:8px; }
+  .outcome{ display:flex; align-items:center; gap:6px; }
+  .outcome-btn{ font-size:11px; padding:4px 8px; }
+  .outcome-booked{ color:var(--text-success); font-size:12px; cursor:pointer; }
+  .outcome-no{ color:var(--text-danger); font-size:12px; cursor:pointer; }
 </style>
 </head>
 <body>
