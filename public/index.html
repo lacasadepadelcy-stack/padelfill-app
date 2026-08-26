@@ -52,6 +52,10 @@
   .metric p:first-child{ font-size:13px; color:var(--text-secondary); margin:0 0 4px; }
   .metric p:last-child{ font-size:24px; font-weight:500; margin:0; }
   .view{ }
+  .dateheader{ font-size:15px; font-weight:600; margin:20px 0 8px; }
+  .dateheader:first-child{ margin-top:0; }
+  .gapcard{ background:var(--surface-2); border:0.5px solid var(--border); border-radius:var(--radius); padding:0.9rem 1rem; margin-bottom:10px; }
+  .gapcard-title{ font-weight:600; font-size:13px; margin-bottom:8px; }
 </style>
 </head>
 <body>
@@ -61,11 +65,13 @@
 
   <div class="nav">
     <button class="navbtn active" data-view="schedule">Πρόγραμμα & κενά</button>
+    <button class="navbtn" data-view="weekly">Εβδομαδιαία κενά</button>
     <button class="navbtn" data-view="swipe">Swipe to play</button>
     <button class="navbtn" data-view="dash">Dashboard</button>
   </div>
 
   <div id="view-schedule" class="view"></div>
+  <div id="view-weekly" class="view" style="display:none;"></div>
   <div id="view-swipe" class="view" style="display:none;"></div>
   <div id="view-dash" class="view" style="display:none;"></div>
 </div>

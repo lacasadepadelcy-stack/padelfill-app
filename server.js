@@ -121,6 +121,11 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, await matching.buildDashboard(date));
     }
 
+    if (pathname === "/api/gaps/weekly" && req.method === "GET") {
+      const days = parseInt(searchParams.get("days"), 10) || 7;
+      return sendJSON(res, 200, { report: await matching.buildWeeklyGaps(days) });
+    }
+
     const historyMatch = pathname.match(/^\/api\/players\/([^/]+)\/history$/);
     if (historyMatch && req.method === "GET") {
       const playerId = decodeURIComponent(historyMatch[1]);

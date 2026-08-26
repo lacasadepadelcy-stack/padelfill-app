@@ -1,6 +1,7 @@
 const navBtns = document.querySelectorAll(".navbtn");
 const views = {
   schedule: document.getElementById("view-schedule"),
+  weekly: document.getElementById("view-weekly"),
   swipe: document.getElementById("view-swipe"),
   dash: document.getElementById("view-dash"),
 };
@@ -12,6 +13,7 @@ function setView(name) {
   Object.keys(views).forEach((k) => (views[k].style.display = k === name ? "" : "none"));
   navBtns.forEach((b) => b.classList.toggle("active", b.dataset.view === name));
   if (name === "schedule") loadSchedule();
+  if (name === "weekly") loadWeeklyGaps();
   if (name === "swipe") loadSwipeCandidate();
   if (name === "dash") loadDashboard();
 }
@@ -202,6 +204,83 @@ async function showGapDetail(cellEl, gapId) {
 
   document.getElementById("applyRange").addEventListener("click", refresh);
   refresh();
+}
+
+// Συγκεντρωτική προβολή: όλα τα κενά των επόμενων 7 ημερών, μαζί με
+// προτεινόμενους παίκτες ίδιου επιπέδου για το καθένα — χωρίς να χρειάζεται
+// να μπαίνει κανείς σε κάθε μέρα ξεχωριστά.
+async function loadWeeklyGaps() {
+  const container = views.weekly;
+  container.innerHTML = "";
+
+  const langWrap = document.createElement("div");
+  langWrap.className = "levelfilter";
+  langWrap.innerHTML = `
+    <span>Γλώσσα μηνύματος</span>
+    <select id="weeklyLang">
+      <option value="el">Ελληνικά</option>
+      <option value="en">English</option>
+    </select>
+  `;
+  container.appendChild(langWrap);
+
+  container.appendChild(el("p", "Φόρτωση...", "sub"));
+  const res = await fetch("/api/gaps/weekly?days=7");
+  const data = await res.json();
+  container.removeChild(container.lastChild);
+
+  if (!data.report.length) {
+    container.appendChild(el("p", "Δεν υπάρχουν κενά τις επόμενες 7 μέρες 🎉", "sub"));
+    return;
+  }
+
+  let lastDate = null;
+  data.report.forEach((gap) => {
+    if (gap.date !== lastDate) {
+      container.appendChild(el("div", gap.dateLabel, "dateheader"));
+      lastDate = gap.date;
+    }
+
+    const card = document.createElement("div");
+    card.className = "gapcard";
+
+    const timeRange = gap.endTime ? `${gap.startTime}–${gap.endTime}` : `από ${gap.startTime}`;
+    const levelText = gap.targetLevel ? ` · επίπεδο ~${gap.targetLevel.toFixed(1)}` : "";
+    card.appendChild(el("div", `${gap.court.name} · ${timeRange}${levelText}`, "gapcard-title"));
+
+    if (!gap.suggestions.length) {
+      card.appendChild(el("p", "Δεν βρέθηκαν κατάλληλοι παίκτες.", "sub"));
+    } else {
+      gap.suggestions.forEach((p) => {
+        const row = el("div", "", "player");
+        const info = el("span", `${p.name} · Επίπεδο ${p.level}`);
+        const actions = el("div", "", "actions");
+        const notifyBtn = el("button", "Ειδοποίησε");
+        notifyBtn.addEventListener("click", async () => {
+          notifyBtn.disabled = true;
+          notifyBtn.textContent = "...";
+          const lang = document.getElementById("weeklyLang")?.value || "el";
+          const notifyRes = await fetch(`/api/gaps/${encodeURIComponent(gap.gapId)}/notify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ playerId: p.id, date: gap.date, lang }),
+          });
+          const result = await notifyRes.json();
+          actions.innerHTML = "";
+          actions.appendChild(el("span", "Στάλθηκε ✓", "notified"));
+          if (result.notification?.whatsappUrl) {
+            window.open(result.notification.whatsappUrl, "_blank");
+          }
+        });
+        actions.appendChild(notifyBtn);
+        row.appendChild(info);
+        row.appendChild(actions);
+        card.appendChild(row);
+      });
+    }
+
+    container.appendChild(card);
+  });
 }
 
 async function loadSwipeCandidate() {

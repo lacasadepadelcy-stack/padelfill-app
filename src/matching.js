@@ -172,4 +172,48 @@ async function buildDashboard(date) {
   };
 }
 
-module.exports = { buildSchedule, suggestPlayersForGap, buildDashboard };
+// Συγκεντρωτική λίστα ΟΛΩΝ των κενών τις επόμενες `days` ημέρες, μαζί με
+// προτεινόμενους παίκτες ίδιου επιπέδου για το καθένα — ώστε να μη χρειάζεται
+// να μπαίνει κανείς σε κάθε μέρα/κενό ξεχωριστά για να δει ποιον να καλέσει.
+// Συνεχόμενα κενά slots στο ίδιο γήπεδο ενώνονται σε ένα ενιαίο χρονικό
+// παράθυρο (π.χ. "10:00–12:00"), όπως ακριβώς και τα παιχνίδια στο πρόγραμμα.
+async function buildWeeklyGaps(days = 7) {
+  const dates = playtomic.getUpcomingDates(days);
+  const report = [];
+
+  for (const { date, label } of dates) {
+    const schedule = await buildSchedule(date);
+
+    for (const { court, slots } of schedule) {
+      let i = 0;
+      while (i < slots.length) {
+        if (slots[i].status !== "gap") {
+          i += 1;
+          continue;
+        }
+        const startIdx = i;
+        while (i < slots.length && slots[i].status === "gap") i += 1;
+        const startTime = slots[startIdx].time;
+        const endTime = i < slots.length ? slots[i].time : null;
+        const gapId = slots[startIdx].gapId;
+
+        const { targetLevel, suggestions } = await suggestPlayersForGap(gapId, date);
+
+        report.push({
+          date,
+          dateLabel: label,
+          court,
+          startTime,
+          endTime,
+          gapId,
+          targetLevel,
+          suggestions: suggestions.slice(0, 3),
+        });
+      }
+    }
+  }
+
+  return report;
+}
+
+module.exports = { buildSchedule, suggestPlayersForGap, buildDashboard, buildWeeklyGaps };
