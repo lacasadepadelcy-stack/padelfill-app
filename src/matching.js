@@ -35,6 +35,33 @@ function seededShuffle(items, seed) {
   return out;
 }
 
+// Μέγιστη επιτρεπτή διαφορά επιπέδου ΑΝΑΜΕΣΑ σε οποιουσδήποτε δύο παίκτες
+// μέσα στην ΙΔΙΑ λίστα προτάσεων — ώστε να μη βγαίνει ποτέ λίστα με π.χ.
+// επίπεδο 1.02 μαζί με 4.0 (ακόμα κι όταν δεν υπάρχει γειτονικό παιχνίδι
+// για να δώσει ένδειξη επιπέδου).
+const SUGGESTION_LEVEL_SPREAD = 0.3;
+
+// Διαλέγει, με τη σειρά προτεραιότητας που ήδη έχουν οι υποψήφιοι (π.χ. πιο
+// κοντά στο targetLevel, ή shuffle για ποικιλία), μέχρι `limit` παίκτες —
+// προσπερνώντας όποιον θα έκανε το συνολικό εύρος επιπέδου της τελικής
+// λίστας να ξεπεράσει το `maxSpread`.
+function pickWithinLevelSpread(orderedCandidates, limit, maxSpread) {
+  const chosen = [];
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of orderedCandidates) {
+    const newMin = Math.min(min, p.level);
+    const newMax = Math.max(max, p.level);
+    if (newMax - newMin <= maxSpread) {
+      chosen.push(p);
+      min = newMin;
+      max = newMax;
+      if (chosen.length >= limit) break;
+    }
+  }
+  return chosen;
+}
+
 function timeToMinutes(t) {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
@@ -173,7 +200,11 @@ async function suggestPlayersForGap(gapId, date, options = {}) {
   return {
     targetLevel,
     levelRange: hasManualRange ? { minLevel, maxLevel } : null,
-    suggestions: candidates.slice(0, limit),
+    // Ακόμα κι αν η λίστα candidates έχει μεγάλο εύρος επιπέδων (π.χ. όταν
+    // δεν υπάρχει γειτονικό παιχνίδι για ένδειξη), η τελική λίστα προτάσεων
+    // περιορίζεται ώστε η μέγιστη διαφορά επιπέδου ανάμεσα σε δύο παίκτες
+    // της να μην ξεπερνά το SUGGESTION_LEVEL_SPREAD (0.30).
+    suggestions: pickWithinLevelSpread(candidates, limit, SUGGESTION_LEVEL_SPREAD),
   };
 }
 
