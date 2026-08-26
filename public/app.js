@@ -144,7 +144,7 @@ async function showGapDetail(cellEl, gapId) {
     <button id="applyRange">Εφαρμογή</button>
     <span style="margin-left:8px;">Γλώσσα μηνύματος</span>
     <select id="notifyLang">
-      <option value="el">Ελληνικά</option>
+      <option value="el">Greeklish</option>
       <option value="en">English</option>
     </select>
   `;
@@ -229,7 +229,7 @@ async function loadWeeklyGaps() {
   langWrap.innerHTML = `
     <span>Γλώσσα μηνύματος</span>
     <select id="weeklyLang">
-      <option value="el">Ελληνικά</option>
+      <option value="el">Greeklish</option>
       <option value="en">English</option>
     </select>
   `;

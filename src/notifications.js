@@ -30,8 +30,8 @@ function buildWhatsAppLink(phone, message) {
 }
 
 // Μετατρέπει την ημερομηνία του κενού σε φυσική ένδειξη ημέρας
-// ("σήμερα"/"αύριο"/όνομα ημέρας) αντί για ξερή ημερομηνία — πιο φυσικό
-// μήνυμα προς τον παίκτη.
+// ("simera"/"avrio"/όνομα ημέρας σε greeklish) αντί για ξερή ημερομηνία —
+// πιο φυσικό/αυθεντικό μήνυμα προς τον παίκτη.
 function dayLabel(dateStr, lang) {
   if (!dateStr) return "";
   const todayISO = new Date().toISOString().slice(0, 10);
@@ -39,28 +39,29 @@ function dayLabel(dateStr, lang) {
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowISO = tomorrow.toISOString().slice(0, 10);
 
-  if (dateStr === todayISO) return lang === "en" ? "today" : "σήμερα";
-  if (dateStr === tomorrowISO) return lang === "en" ? "tomorrow" : "αύριο";
+  if (dateStr === todayISO) return lang === "en" ? "today" : "simera";
+  if (dateStr === tomorrowISO) return lang === "en" ? "tomorrow" : "avrio";
 
   const d = new Date(`${dateStr}T00:00:00`);
-  return d.toLocaleDateString(lang === "en" ? "en-GB" : "el-GR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "2-digit",
-  });
+  if (lang === "en") {
+    return d.toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "2-digit" });
+  }
+  const greeklishDays = ["Kyriaki", "Deutera", "Triti", "Tetarti", "Pempti", "Paraskevi", "Savvato"];
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${greeklishDays[d.getDay()]} ${dd}/${mm}`;
 }
 
-// Ευγενικό/διακριτικό μήνυμα που ρωτάει (όχι επιβεβαιώνει) αν ο παίκτης
-// μπορεί να παίξει τη συγκεκριμένη ώρα — σε Ελληνικά ή Αγγλικά.
+// Ζεστό/άμεσο μήνυμα που ρωτάει αν ο παίκτης θέλει να παίξει τη
+// συγκεκριμένη ώρα — σε greeklish (πιο αυθεντικό/casual) ή στα αγγλικά.
 function buildMessage(player, gapInfo, lang) {
   const when = dayLabel(gapInfo.date, lang);
-  // Μόνο το μικρό όνομα (όχι επίθετο) — πιο προσωπικό/φυσικό ύφος, ιδίως
-  // όταν το όνομα είναι σε λατινικούς χαρακτήρες μέσα σε ελληνική πρόταση.
+  // Μόνο το μικρό όνομα (όχι επίθετο) — πιο προσωπικό/φυσικό ύφος.
   const firstName = String(player.name || "").trim().split(/\s+/)[0];
   if (lang === "en") {
-    return `Hey ${firstName}, would you like to join a game ${when} at ${gapInfo.time}?`;
+    return `Hi ${firstName}, would you like to play padel ${when} at ${gapInfo.time}?`;
   }
-  return `Έλα ${firstName}, θα ήθελες να μπεις σε παιχνίδι ${when} στις ${gapInfo.time};`;
+  return `Hi ${firstName}, tha itheles na pexis padel ${when} stis ${gapInfo.time};`;
 }
 
 function sendGapNotification(player, gapInfo, lang = "el") {
