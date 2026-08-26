@@ -28,12 +28,44 @@ const MANUAL_COURTS = process.env.PLAYTOMIC_COURTS
 
 const USE_REAL_API = Boolean(CLIENT_ID && CLIENT_SECRET && VENUE_ID);
 
-// Ωράριο κλαμπ: 07:00–23:30, κρατήσεις 90 λεπτών. Το Playtomic API δεν
-// επιστρέφει το ωράριο λειτουργίας του club, οπότε μένει εδώ χειροκίνητα.
-const HOURS = [
-  "07:00", "08:30", "10:00", "11:30", "13:00",
-  "14:30", "16:00", "17:30", "19:00", "20:30", "22:00",
-];
+// Ωράριο κλαμπ: 07:00–23:30. Το Playtomic API δεν επιστρέφει το ωράριο
+// λειτουργίας του club, οπότε μένει εδώ χειροκίνητα. Χρησιμοποιούμε ανά 30
+// λεπτά (αντί για σταθερά 90λεπτα slots) ώστε να χωράνε κρατήσεις που δεν
+// ξεκινούν ακριβώς σε "στρογγυλή" ώρα.
+function generateHours(startHour, endHour, stepMinutes) {
+  const out = [];
+  for (let totalMin = startHour * 60; totalMin <= endHour * 60; totalMin += stepMinutes) {
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    out.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+  }
+  return out;
+}
+
+const HOURS = generateHours(7, 22, 30);
+
+// Το Playtomic API επιστρέφει τις ώρες κρατήσεων σε UTC. Το club είναι στην
+// Κύπρο (Asia/Nicosia), που τώρα είναι UTC+3 (θερινή ώρα) — χωρίς αυτή τη
+// μετατροπή οι ώρες θα εμφανίζονταν λάθος (πιο νωρίς) στο πρόγραμμα.
+const VENUE_TIMEZONE = "Asia/Nicosia";
+
+function toVenueDateTimeParts(isoStr) {
+  const raw = isoStr || "";
+  // Αν το API δεν στείλει ρητά UTC ένδειξη (Z ή +offset), υποθέτουμε UTC.
+  const withZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw}Z`;
+  const d = new Date(withZone);
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: VENUE_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(d).map((p) => [p.type, p.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
 
 // ============================================================
 // MOCK δεδομένα — χρησιμοποιούνται μόνο όταν ΔΕΝ υπάρχουν τα
@@ -260,19 +292,32 @@ async function getRealBookingsForDate(dateStr) {
   const cached = realBookingsCache.get(dateStr);
   if (cached && cached.expiresAt > Date.now()) return cached.data;
 
-  const raw = await fetchAllBookings(`${dateStr}T00:00:00`, `${dateStr}T23:59:59`);
+  // Τραβάμε λίγο ευρύτερο διάστημα σε UTC (μία μέρα πριν/μετά) γιατί, μετά τη
+  // μετατροπή σε τοπική ώρα Κύπρου, κάποιες κρατήσεις κοντά στα μεσάνυχτα UTC
+  // μπορεί να "μετακινηθούν" σε γειτονική ημερομηνία.
+  const start = new Date(`${dateStr}T00:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - 1);
+  const end = new Date(`${dateStr}T23:59:59Z`);
+  end.setUTCDate(end.getUTCDate() + 1);
+
+  const raw = await fetchAllBookings(isoNoMs(start), isoNoMs(end));
 
   const bookings = raw
     .filter((b) => !b.is_canceled)
-    .map((b) => ({
-      court: b.resource_id,
-      time: (b.booking_start_date || "").slice(11, 16),
-      type: TRAINING_TYPES.has(b.booking_type) ? "training" : "game",
-      players: (b.participant_info?.participants || []).map((p) => p.participant_id),
-    }))
-    // Κρατάμε μόνο κρατήσεις που πέφτουν ακριβώς σε μια από τις γνωστές ώρες
-    // του προγράμματος (HOURS) ώστε να χωράνε στο grid του UI.
-    .filter((b) => HOURS.includes(b.time));
+    .map((b) => {
+      const { date, time } = toVenueDateTimeParts(b.booking_start_date);
+      return {
+        date,
+        court: b.resource_id,
+        time,
+        type: TRAINING_TYPES.has(b.booking_type) ? "training" : "game",
+        players: (b.participant_info?.participants || []).map((p) => p.participant_id),
+      };
+    })
+    // Κρατάμε μόνο τις κρατήσεις που πέφτουν πραγματικά στη ζητούμενη
+    // ημερομηνία ΜΕΤΑ τη μετατροπή σε τοπική ώρα (όχι σε ώρα UTC).
+    .filter((b) => b.date === dateStr)
+    .map(({ date, ...rest }) => rest);
 
   realBookingsCache.set(dateStr, { data: bookings, expiresAt: Date.now() + 2 * 60 * 1000 });
   return bookings;
@@ -290,7 +335,7 @@ async function getRealPastMatches() {
   const matches = raw
     .filter((b) => !b.is_canceled && !TRAINING_TYPES.has(b.booking_type))
     .map((b) => ({
-      date: (b.booking_start_date || "").slice(0, 10),
+      date: toVenueDateTimeParts(b.booking_start_date).date,
       players: (b.participant_info?.participants || []).map((p) => p.participant_id),
     }))
     .filter((m) => m.players.length > 0);

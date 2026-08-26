@@ -14,10 +14,16 @@ const LEVEL_TOLERANCE = 0.5; // πόσο μπορεί να διαφέρει το
 
 async function buildSchedule(date) {
   const courts = await playtomic.getCourts();
-  const hours = playtomic.getHours();
   const bookings = await playtomic.getBookingsForDate(date);
   const players = await playtomic.getPlayers();
   const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
+
+  // Ενοποιούμε το βασικό ωράριο με όποιες πραγματικές ώρες κράτησης δεν
+  // πέφτουν ακριβώς πάνω σε αυτό, ώστε να μη "χάνεται" κανένα παιχνίδι από
+  // το πρόγραμμα ακόμα κι αν ξεκινάει σε μη τυπική ώρα.
+  const hoursSet = new Set(playtomic.getHours());
+  bookings.forEach((b) => hoursSet.add(b.time));
+  const hours = Array.from(hoursSet).sort();
 
   const schedule = courts.map((court) => {
     const slots = hours.map((time) => {
