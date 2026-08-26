@@ -11,7 +11,7 @@
 const playtomic = require("./playtomicClient");
 const notifications = require("./notifications");
 
-const LEVEL_TOLERANCE = 0.5; // πόσο μπορεί να διαφέρει το επίπεδο για να θεωρηθεί "ταίρι"
+const LEVEL_TOLERANCE = 0.3; // πόσο μπορεί να διαφέρει το επίπεδο για να θεωρηθεί "ταίρι"
 const RECENT_NOTIFY_HOURS = 48; // μετά από πόσες ώρες ξαναθεωρείται "φρέσκος" ένας παίκτης που ειδοποιήθηκε
 
 // Απλό, ντετερμινιστικό "ανακάτεμα" (ίδιο seed -> ίδιο αποτέλεσμα, ώστε η
