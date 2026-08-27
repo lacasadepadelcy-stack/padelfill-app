@@ -77,6 +77,9 @@ function sendGapNotification(player, gapInfo, lang = "el") {
     message,
     whatsappUrl,
     gapId: gapInfo.gapId,
+    // Η ημερομηνία του κενού (όχι πότε στάλθηκε το μήνυμα) — χρειάζεται για
+    // να ελέγχουμε αργότερα αυτόματα αν το γήπεδο τελικά κλείστηκε.
+    date: gapInfo.date || null,
     sentAt: new Date().toISOString(),
     // Αποτέλεσμα: null (άγνωστο ακόμα) / "booked" (έκλεισε γήπεδο) / "no"
     // (δεν έκλεισε) — ενημερώνεται χειροκίνητα από το προσωπικό αργότερα,

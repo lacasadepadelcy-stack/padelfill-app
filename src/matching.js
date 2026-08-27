@@ -360,4 +360,50 @@ async function buildWeeklyStats(days = 7) {
   return { byDay, byHour: byHourArr };
 }
 
-module.exports = { buildSchedule, suggestPlayersForGap, buildDashboard, buildWeeklyGaps, buildWeeklyStats };
+// Αυτόματος έλεγχος: για κάθε ειδοποίηση που περιμένει ακόμα αποτέλεσμα,
+// κοιτάμε αν το γήπεδο/ώρα έχει πλέον πραγματική κράτηση στο Playtomic —
+// αν ναι, το κενό γέμισε (outcome "booked"), χωρίς να χρειάζεται να το
+// σημειώσει κανείς χειροκίνητα. Αν η ημέρα του κενού έχει ήδη περάσει και
+// ΔΕΝ έγινε τελικά κράτηση, το σημειώνουμε "no" (δεν έπιασε).
+async function reconcileNotificationOutcomes() {
+  const pending = notifications.getLog().filter((n) => n.outcome === null && n.date);
+  if (!pending.length) return { updated: 0 };
+
+  const bookingsByDate = new Map();
+  const todayISO = new Date().toISOString().slice(0, 10);
+  let updated = 0;
+
+  for (const entry of pending) {
+    const [courtId, time] = entry.gapId.split("__");
+    if (!bookingsByDate.has(entry.date)) {
+      bookingsByDate.set(entry.date, await playtomic.getBookingsForDate(entry.date));
+    }
+    const bookings = bookingsByDate.get(entry.date);
+    const slotMin = timeToMinutes(time);
+    const isBooked = bookings.some((b) => {
+      if (b.court !== courtId) return false;
+      const startMin = timeToMinutes(b.time);
+      const endMin = startMin + (b.duration || 90);
+      return slotMin >= startMin && slotMin < endMin;
+    });
+
+    if (isBooked) {
+      notifications.setOutcome(entry.id, "booked");
+      updated += 1;
+    } else if (entry.date < todayISO) {
+      notifications.setOutcome(entry.id, "no");
+      updated += 1;
+    }
+  }
+
+  return { updated };
+}
+
+module.exports = {
+  buildSchedule,
+  suggestPlayersForGap,
+  buildDashboard,
+  buildWeeklyGaps,
+  buildWeeklyStats,
+  reconcileNotificationOutcomes,
+};

@@ -206,10 +206,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/notifications" && req.method === "GET") {
+      await matching.reconcileNotificationOutcomes();
       return sendJSON(res, 200, { notifications: notifications.getLog() });
     }
 
     if (pathname === "/api/notifications/stats" && req.method === "GET") {
+      await matching.reconcileNotificationOutcomes();
       return sendJSON(res, 200, notifications.getStats());
     }
 
@@ -229,6 +231,7 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/gaps/weekly" && req.method === "GET") {
       const days = parseInt(searchParams.get("days"), 10) || 7;
+      await matching.reconcileNotificationOutcomes();
       return sendJSON(res, 200, { report: await matching.buildWeeklyGaps(days) });
     }
 
