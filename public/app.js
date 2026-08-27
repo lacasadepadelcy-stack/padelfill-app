@@ -180,9 +180,12 @@ async function showGapDetail(cellEl, gapId) {
   const list = el("div", "");
   box.appendChild(title);
   box.appendChild(list);
+  const searchBoxHolder = document.createElement("div");
+  box.appendChild(searchBoxHolder);
   cellEl.insertAdjacentElement("afterend", box);
 
   const getLang = () => document.getElementById("notifyLang")?.value || "el";
+  let notifiedMap = new Map();
 
   async function refresh() {
     const min = document.getElementById("minLevel").value;
@@ -193,7 +196,7 @@ async function showGapDetail(cellEl, gapId) {
     const [res, notifRes] = await Promise.all([fetch(url), fetch("/api/notifications")]);
     const data = await res.json();
     const notifData = await notifRes.json();
-    const notifiedMap = new Map(
+    notifiedMap = new Map(
       (notifData.notifications || [])
         .filter((n) => n.gapId === gapId)
         .map((n) => [n.playerId, n])
@@ -211,10 +214,67 @@ async function showGapDetail(cellEl, gapId) {
         buildSuggestionRow({ gapId, date: currentDate() }, p, notifiedMap.get(p.id), getLang)
       );
     });
+
+    searchBoxHolder.innerHTML = "";
+    searchBoxHolder.appendChild(
+      buildPlayerSearchBox({ gapId, date: currentDate() }, (playerId) => notifiedMap.get(playerId), getLang)
+    );
   }
 
   document.getElementById("applyRange").addEventListener("click", refresh);
   refresh();
+}
+
+// Πλήρης λίστα παικτών (cache) — χρησιμοποιείται όταν το προσωπικό θέλει να
+// προσθέσει έναν ΣΥΓΚΕΚΡΙΜΕΝΟ πελάτη σε ένα κενό/game (π.χ. τηλεφώνησε ο ίδιος
+// ζητώντας συγκεκριμένη μέρα/ώρα), χωρίς να περιορίζεται στις αυτόματες
+// προτάσεις/φίλτρο επιπέδου.
+let ALL_PLAYERS_CACHE = null;
+async function getAllPlayersCached() {
+  if (ALL_PLAYERS_CACHE) return ALL_PLAYERS_CACHE;
+  const res = await fetch("/api/players");
+  const data = await res.json();
+  ALL_PLAYERS_CACHE = data.players || [];
+  return ALL_PLAYERS_CACHE;
+}
+
+// Κουτί "διάλεξε οποιονδήποτε παίκτη": πεδίο αναζήτησης με όνομα πάνω στην
+// πλήρη λίστα πελατών (όχι μόνο τους προτεινόμενους), για όταν κάποιος
+// τηλεφωνεί/γράφει ζητώντας συγκεκριμένη ώρα και το προσωπικό θέλει να τον
+// καταχωρήσει απευθείας σε αυτό το κενό/game. `lookupNotified(playerId)`
+// επιστρέφει την τυχόν ήδη σταλμένη ειδοποίηση γι' αυτόν τον παίκτη σε αυτό
+// το κενό (ώστε να δείχνουμε στοιχεία αποτελέσματος αντί για κουμπί).
+function buildPlayerSearchBox(gapInfo, lookupNotified, getLang) {
+  const wrap = document.createElement("div");
+  wrap.style.marginTop = "12px";
+  wrap.appendChild(el("p", "Ή διάλεξε συγκεκριμένο παίκτη (π.χ. τηλεφώνησε ζητώντας αυτή την ώρα):", "sub"));
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Αναζήτηση παίκτη με όνομα...";
+  input.style.width = "100%";
+  input.style.marginBottom = "8px";
+  wrap.appendChild(input);
+
+  const results = document.createElement("div");
+  wrap.appendChild(results);
+
+  input.addEventListener("input", async () => {
+    const q = input.value.trim().toLowerCase();
+    results.innerHTML = "";
+    if (!q) return;
+    const all = await getAllPlayersCached();
+    const matches = all.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 8);
+    if (!matches.length) {
+      results.appendChild(el("p", "Δεν βρέθηκε παίκτης.", "sub"));
+      return;
+    }
+    matches.forEach((p) => {
+      results.appendChild(buildSuggestionRow(gapInfo, p, lookupNotified(p.id), getLang));
+    });
+  });
+
+  return wrap;
 }
 
 // Χτίζει τα στοιχεία ελέγχου "αποτελέσματος" για μια ήδη σταλμένη
@@ -367,6 +427,10 @@ async function loadWeeklyGaps() {
         card.appendChild(buildSuggestionRow(gap, p, notifiedMap.get(`${gap.gapId}|${p.id}`), getLang));
       });
     }
+
+    card.appendChild(
+      buildPlayerSearchBox(gap, (playerId) => notifiedMap.get(`${gap.gapId}|${playerId}`), getLang)
+    );
 
     container.appendChild(card);
   });
@@ -558,6 +622,10 @@ async function loadOpenMatches() {
         );
       });
     }
+
+    card.appendChild(
+      buildPlayerSearchBox(gapWithKind, (playerId) => notifiedMap.get(`${match.gapId}|${playerId}`), getLang)
+    );
 
     container.appendChild(card);
   });

@@ -225,6 +225,19 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { date, schedule: await matching.buildSchedule(date) });
     }
 
+    // Πλήρης λίστα παικτών (χωρίς τηλέφωνο) — χρησιμοποιείται από το
+    // χειροκίνητο "αναζήτησε οποιονδήποτε παίκτη" ώστε το προσωπικό να μπορεί
+    // να προσθέσει έναν συγκεκριμένο πελάτη σε ένα κενό/game (π.χ. τηλεφώνησε
+    // ζητώντας συγκεκριμένη μέρα/ώρα), χωρίς να περιορίζεται από το
+    // αυτόματο φίλτρο επιπέδου/τις προτάσεις.
+    if (pathname === "/api/players" && req.method === "GET") {
+      const players = await playtomic.getPlayers();
+      const list = players
+        .map((p) => ({ id: p.id, name: p.name, level: p.level }))
+        .sort((a, b) => a.name.localeCompare(b.name, "el"));
+      return sendJSON(res, 200, { players: list });
+    }
+
     const gapMatch = pathname.match(/^\/api\/gaps\/([^/]+)\/suggestions$/);
     if (gapMatch && req.method === "GET") {
       const date = searchParams.get("date") || todayISO();
