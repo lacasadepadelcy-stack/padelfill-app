@@ -23,11 +23,46 @@ const rewards = require("./src/rewards");
 // environment variables στο hosting (Render -> Environment):
 //   ADMIN_USERNAME, ADMIN_PASSWORD — ο βασικός λογαριασμός
 //   ADMIN_USERS (προαιρετικό, JSON) — επιπλέον λογαριασμοί προσωπικού
-// Sessions κρατιούνται in-memory (ένα session cookie ανά browser).
+//
+// Το session ΔΕΝ κρατιέται in-memory (θα χανόταν κάθε φορά που ο server
+// ξανασηκώνεται — π.χ. στο δωρεάν Render plan που "κοιμάται" μετά από
+// αδράνεια — αναγκάζοντας σε ξανά-login). Αντ' αυτού το cookie είναι το ίδιο
+// ένα υπογεγραμμένο (HMAC) "εισιτήριο": ο server το επαληθεύει μαθηματικά
+// χωρίς να χρειάζεται να θυμάται τίποτα, άρα το login κρατάει ακόμα κι αν ο
+// server επανεκκινήσει.
 // ============================================================
 const SESSION_COOKIE = "pf_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 μέρες
-const sessions = new Map(); // token -> { expiresAt }
+
+function getSessionSecret() {
+  // Προτιμάμε ρητό SESSION_SECRET αν έχει οριστεί· αλλιώς χρησιμοποιούμε το
+  // ADMIN_PASSWORD ως μυστικό (ήδη υπάρχει, δεν χρειάζεται νέο setup) — αν
+  // αλλάξει ο κωδικός, όλα τα υπάρχοντα logins λήγουν αυτόματα, που είναι
+  // λογικό.
+  return process.env.SESSION_SECRET || process.env.ADMIN_PASSWORD || "padelfill-fallback-secret";
+}
+
+function signToken(payload) {
+  const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = crypto.createHmac("sha256", getSessionSecret()).update(data).digest("base64url");
+  return `${data}.${sig}`;
+}
+
+function verifyToken(token) {
+  if (!token || !token.includes(".")) return null;
+  const [data, sig] = token.split(".");
+  const expectedSig = crypto.createHmac("sha256", getSessionSecret()).update(data).digest("base64url");
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(data, "base64url").toString("utf8"));
+    if (!payload.exp || payload.exp < Date.now()) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
 
 function parseCookies(req) {
   const header = req.headers.cookie || "";
@@ -42,10 +77,8 @@ function parseCookies(req) {
   return cookies;
 }
 
-function createSession() {
-  const token = crypto.randomBytes(24).toString("hex");
-  sessions.set(token, { expiresAt: Date.now() + SESSION_TTL_MS });
-  return token;
+function createSession(username) {
+  return signToken({ u: username, exp: Date.now() + SESSION_TTL_MS });
 }
 
 // Λίστα έγκυρων λογαριασμών: το βασικό ADMIN_USERNAME/ADMIN_PASSWORD (πάντα),
@@ -73,15 +106,7 @@ function getAdminAccounts() {
 }
 
 function isValidSession(req) {
-  const token = parseCookies(req)[SESSION_COOKIE];
-  if (!token) return false;
-  const session = sessions.get(token);
-  if (!session) return false;
-  if (session.expiresAt < Date.now()) {
-    sessions.delete(token);
-    return false;
-  }
-  return true;
+  return Boolean(verifyToken(parseCookies(req)[SESSION_COOKIE]));
 }
 
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -155,7 +180,7 @@ const server = http.createServer(async (req, res) => {
       if (!match) {
         return sendJSON(res, 401, { error: "Λάθος όνομα χρήστη ή κωδικός" });
       }
-      const token = createSession();
+      const token = createSession(match.username);
       res.setHeader(
         "Set-Cookie",
         `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; SameSite=Lax`
@@ -164,8 +189,6 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/logout" && req.method === "POST") {
-      const token = parseCookies(req)[SESSION_COOKIE];
-      if (token) sessions.delete(token);
       res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
       return sendJSON(res, 200, { ok: true });
     }
