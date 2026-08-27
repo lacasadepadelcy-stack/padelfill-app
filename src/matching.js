@@ -660,10 +660,15 @@ const GAME_FULL_SIZE = 4;
 // από τα "κενά": εδώ η κράτηση υπάρχει, απλά λείπουν παίκτες. Χρησιμοποιούμε
 // το ΑΚΡΙΒΕΣ μέσο επίπεδο των ήδη υπαρχόντων παικτών ως στόχο — πιο ακριβές
 // από την εικασία που κάνουμε για τα κενά (γειτονικό παιχνίδι).
-async function buildOpenMatches(days = 7) {
+async function buildOpenMatches(days = 7, options = {}) {
   const dates = playtomic.getUpcomingDates(days);
   const report = [];
   const suggestionUsage = new Map();
+
+  // Χειροκίνητο εύρος επιπέδου (προαιρετικό): αν το προσωπικό ορίσει δικό
+  // του επίπεδο, αγνοούμε το αυτόματο εύρος (γύρω από το μέσο επίπεδο των
+  // ήδη υπαρχόντων παικτών) και χρησιμοποιούμε αυτό για ΟΛΑ τα open matches.
+  const hasManualRange = typeof options.minLevel === "number" || typeof options.maxLevel === "number";
 
   for (const { date, label } of dates) {
     const schedule = await buildSchedule(date);
@@ -685,8 +690,8 @@ async function buildOpenMatches(days = 7) {
 
         const gapId = `${court.id}__${s.startTime}`;
         const { suggestions: pool } = await suggestPlayersForGap(gapId, date, {
-          minLevel: targetLevel !== null ? targetLevel - LEVEL_TOLERANCE : undefined,
-          maxLevel: targetLevel !== null ? targetLevel + LEVEL_TOLERANCE : undefined,
+          minLevel: hasManualRange ? options.minLevel : targetLevel !== null ? targetLevel - LEVEL_TOLERANCE : undefined,
+          maxLevel: hasManualRange ? options.maxLevel : targetLevel !== null ? targetLevel + LEVEL_TOLERANCE : undefined,
         });
 
         const ranked = [...pool].sort(
@@ -711,7 +716,7 @@ async function buildOpenMatches(days = 7) {
     }
   }
 
-  return report;
+  return { report, manualRange: hasManualRange ? { minLevel: options.minLevel, maxLevel: options.maxLevel } : null };
 }
 
 module.exports = {

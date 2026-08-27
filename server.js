@@ -304,7 +304,13 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/matches/open" && req.method === "GET") {
       const days = parseInt(searchParams.get("days"), 10) || 7;
-      return sendJSON(res, 200, { report: await matching.buildOpenMatches(days) });
+      const minLevel = searchParams.get("minLevel");
+      const maxLevel = searchParams.get("maxLevel");
+      const result = await matching.buildOpenMatches(days, {
+        minLevel: minLevel ? parseFloat(minLevel) : undefined,
+        maxLevel: maxLevel ? parseFloat(maxLevel) : undefined,
+      });
+      return sendJSON(res, 200, result);
     }
 
     const rewardMatch = pathname.match(/^\/api\/players\/([^/]+)\/reward$/);

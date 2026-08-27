@@ -30,6 +30,8 @@ let DATES = [];
 let dateIndex = 0;
 let weeklyRangeDays = 7; // επιλογή προβολής στα "Εβδομαδιαία κενά": 7 (εβδομάδα) ή 30 (μήνας)
 let customersGranularity = "month"; // επιλογή προβολής στην καρτέλα "Πελάτες": "month" ή "week"
+let openMatchMinLevel = ""; // χειροκίνητο φίλτρο επιπέδου στα "Ανοιχτά παιχνίδια" (κενό = αυτόματο)
+let openMatchMaxLevel = "";
 
 function setView(name) {
   Object.keys(views).forEach((k) => (views[k].style.display = k === name ? "" : "none"));
@@ -463,7 +465,13 @@ async function loadOpenMatches() {
   const langWrap = document.createElement("div");
   langWrap.className = "levelfilter";
   langWrap.innerHTML = `
-    <span>Γλώσσα μηνύματος</span>
+    <span>Επίπεδο από</span>
+    <input type="number" step="0.5" id="omMinLevel" placeholder="π.χ. 3">
+    <span>έως</span>
+    <input type="number" step="0.5" id="omMaxLevel" placeholder="π.χ. 4">
+    <button id="omApplyRange">Εφαρμογή</button>
+    <button id="omClearRange">Καθαρισμός</button>
+    <span style="margin-left:8px;">Γλώσσα μηνύματος</span>
     <select id="openMatchLang">
       <option value="el">Greeklish</option>
       <option value="en">English</option>
@@ -471,11 +479,31 @@ async function loadOpenMatches() {
   `;
   container.appendChild(langWrap);
 
+  const minInput = document.getElementById("omMinLevel");
+  const maxInput = document.getElementById("omMaxLevel");
+  minInput.value = openMatchMinLevel;
+  maxInput.value = openMatchMaxLevel;
+
+  document.getElementById("omApplyRange").addEventListener("click", () => {
+    openMatchMinLevel = minInput.value;
+    openMatchMaxLevel = maxInput.value;
+    loadOpenMatches();
+  });
+  document.getElementById("omClearRange").addEventListener("click", () => {
+    openMatchMinLevel = "";
+    openMatchMaxLevel = "";
+    loadOpenMatches();
+  });
+
   const loadingMsg = el("p", "Φόρτωση...", "sub");
   container.appendChild(loadingMsg);
 
+  let url = "/api/matches/open?days=7";
+  if (openMatchMinLevel) url += `&minLevel=${openMatchMinLevel}`;
+  if (openMatchMaxLevel) url += `&maxLevel=${openMatchMaxLevel}`;
+
   const [res, notifRes] = await Promise.all([
-    fetch("/api/matches/open?days=7"),
+    fetch(url),
     fetch("/api/notifications"),
   ]);
   const data = await res.json();
@@ -484,6 +512,12 @@ async function loadOpenMatches() {
 
   const notifiedMap = new Map((notifData.notifications || []).map((n) => [`${n.gapId}|${n.playerId}`, n]));
   const getLang = () => document.getElementById("openMatchLang")?.value || "el";
+
+  if (data.manualRange) {
+    container.appendChild(
+      el("p", `Εμφανίζονται προτάσεις επιπέδου ${data.manualRange.minLevel ?? "…"} έως ${data.manualRange.maxLevel ?? "…"} (χειροκίνητο φίλτρο)`, "sub")
+    );
+  }
 
   if (!data.report.length) {
     container.appendChild(el("p", "Δεν υπάρχουν ανοιχτά παιχνίδια τις επόμενες 7 μέρες.", "sub"));
