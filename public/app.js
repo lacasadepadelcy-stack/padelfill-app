@@ -508,6 +508,9 @@ async function loadDashboard() {
   metrics.appendChild(metric("Πληρότητα", `${data.occupancyPct}%`));
   metrics.appendChild(metric("Κενά", `${data.gapSlots}/${data.totalSlots}`));
   metrics.appendChild(metric("Μαθήματα vs παιχνίδια", `${data.trainingPct}% / ${data.gamePct}%`));
+  if (typeof data.estimatedRevenue === "number") {
+    metrics.appendChild(metric("Εκτιμώμενα έσοδα σήμερα", `${data.estimatedRevenue}€`));
+  }
   container.appendChild(metrics);
 
   if (stats.total > 0) {
@@ -624,13 +627,23 @@ async function loadCustomers() {
     return;
   }
 
-  container.appendChild(
+  const subRow = document.createElement("div");
+  subRow.style.display = "flex";
+  subRow.style.justifyContent = "space-between";
+  subRow.style.alignItems = "center";
+  subRow.style.gap = "8px";
+  subRow.style.flexWrap = "wrap";
+  subRow.appendChild(
     el(
       "p",
       `Παιχνίδια ανά πελάτη, ανά μήνα (${data.months.length} μήνες ιστορικού) · VIP = ${data.vipThreshold}+ παιχνίδια/μήνα`,
       "sub"
     )
   );
+  const csvBtn = el("button", "Λήψη CSV (Excel)");
+  csvBtn.addEventListener("click", () => downloadCustomersCsv(data));
+  subRow.appendChild(csvBtn);
+  container.appendChild(subRow);
 
   const wrap = document.createElement("div");
   wrap.className = "schedulewrap";
@@ -643,6 +656,7 @@ async function loadCustomers() {
   headRow.appendChild(el("th", "Επίπεδο"));
   data.months.forEach((mk) => headRow.appendChild(el("th", mk)));
   headRow.appendChild(el("th", "Σύνολο"));
+  headRow.appendChild(el("th", "Ανταμοιβή"));
   thead.appendChild(headRow);
   table.appendChild(thead);
 
@@ -667,6 +681,38 @@ async function loadCustomers() {
     totalCell.className = "num";
     totalCell.style.fontWeight = "700";
     row.appendChild(totalCell);
+
+    const rewardCell = document.createElement("td");
+    if (p.vip) {
+      if (p.rewardGiven) {
+        rewardCell.appendChild(el("span", "Δόθηκε ✓", "notified"));
+      } else {
+        const rewardBtn = el("button", "Σημείωσε ανταμοιβή");
+        rewardBtn.addEventListener("click", async () => {
+          rewardBtn.disabled = true;
+          rewardBtn.textContent = "...";
+          const rres = await fetch(`/api/players/${encodeURIComponent(p.id)}/reward`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month: p.vipMonth }),
+          });
+          if (rres.ok) {
+            rewardCell.innerHTML = "";
+            rewardCell.appendChild(el("span", "Δόθηκε ✓", "notified"));
+          } else {
+            rewardBtn.disabled = false;
+            rewardBtn.textContent = "Σημείωσε ανταμοιβή";
+          }
+        });
+        rewardCell.appendChild(rewardBtn);
+      }
+    } else if (p.gamesToVip > 0) {
+      rewardCell.appendChild(el("span", `${p.gamesToVip} ακόμα για VIP`, "sub"));
+    } else {
+      rewardCell.appendChild(el("span", "—", "sub"));
+    }
+    row.appendChild(rewardCell);
+
     tbody.appendChild(row);
   });
   table.appendChild(tbody);
@@ -734,6 +780,32 @@ async function loadCustomers() {
       container.appendChild(row);
     });
   }
+}
+
+// Κατεβάζει τον πίνακα πελατών σε CSV (ανοίγει κανονικά στο Excel) — για
+// λογιστικό ή εκτύπωση, χωρίς να χρειάζεται καμία επιπλέον βιβλιοθήκη.
+function downloadCustomersCsv(data) {
+  const header = ["Πελάτης", "Επίπεδο", ...data.months, "Σύνολο", "VIP"];
+  const rows = data.players.map((p) => [
+    p.name,
+    p.level ?? "",
+    ...data.months.map((mk) => p.byMonth[mk] || 0),
+    p.total,
+    p.vip ? "Ναι" : "Όχι",
+  ]);
+  const csvLines = [header, ...rows].map((cols) =>
+    cols.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")
+  );
+  const csvContent = "﻿" + csvLines.join("\r\n"); // BOM ώστε το Excel να δείχνει σωστά τα ελληνικά
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `padelfill-pelates-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function metric(label, value) {

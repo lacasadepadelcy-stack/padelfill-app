@@ -16,11 +16,13 @@ const matching = require("./src/matching");
 const swipeModule = require("./src/swipe");
 const notifications = require("./src/notifications");
 const history = require("./src/history");
+const rewards = require("./src/rewards");
 
 // ============================================================
-// Απλό login (ένας μόνο λογαριασμός — ο ιδιοκτήτης του club). Στοιχεία
-// σύνδεσης ΔΕΝ μπαίνουν ποτέ στον κώδικα· ορίζονται ως environment
-// variables στο hosting (Render -> Environment): ADMIN_USERNAME, ADMIN_PASSWORD.
+// Απλό login. Στοιχεία σύνδεσης ΔΕΝ μπαίνουν ποτέ στον κώδικα· ορίζονται ως
+// environment variables στο hosting (Render -> Environment):
+//   ADMIN_USERNAME, ADMIN_PASSWORD — ο βασικός λογαριασμός
+//   ADMIN_USERS (προαιρετικό, JSON) — επιπλέον λογαριασμοί προσωπικού
 // Sessions κρατιούνται in-memory (ένα session cookie ανά browser).
 // ============================================================
 const SESSION_COOKIE = "pf_session";
@@ -44,6 +46,30 @@ function createSession() {
   const token = crypto.randomBytes(24).toString("hex");
   sessions.set(token, { expiresAt: Date.now() + SESSION_TTL_MS });
   return token;
+}
+
+// Λίστα έγκυρων λογαριασμών: το βασικό ADMIN_USERNAME/ADMIN_PASSWORD (πάντα),
+// συν όποιους επιπλέον λογαριασμούς οριστούν στο ADMIN_USERS ως JSON, π.χ.
+// ADMIN_USERS = [{"username":"maria","password":"..."}] — για να μπορεί να
+// μπαίνει και άλλο άτομο του προσωπικού με δικά του στοιχεία.
+function getAdminAccounts() {
+  const accounts = [];
+  if (process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
+    accounts.push({ username: process.env.ADMIN_USERNAME, password: process.env.ADMIN_PASSWORD });
+  }
+  if (process.env.ADMIN_USERS) {
+    try {
+      const extra = JSON.parse(process.env.ADMIN_USERS);
+      if (Array.isArray(extra)) {
+        extra.forEach((a) => {
+          if (a && a.username && a.password) accounts.push({ username: a.username, password: a.password });
+        });
+      }
+    } catch (e) {
+      // αγνοούμε λάθος JSON — ο βασικός λογαριασμός συνεχίζει να δουλεύει
+    }
+  }
+  return accounts;
 }
 
 function isValidSession(req) {
@@ -119,14 +145,14 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/login" && req.method === "POST") {
       const body = await readBody(req);
       const { username, password } = body;
-      const validUser = process.env.ADMIN_USERNAME;
-      const validPass = process.env.ADMIN_PASSWORD;
-      if (!validUser || !validPass) {
+      const accounts = getAdminAccounts();
+      if (!accounts.length) {
         return sendJSON(res, 500, {
           error: "Δεν έχουν οριστεί ακόμα ADMIN_USERNAME / ADMIN_PASSWORD στο hosting (Render -> Environment).",
         });
       }
-      if (username !== validUser || password !== validPass) {
+      const match = accounts.find((a) => a.username === username && a.password === password);
+      if (!match) {
         return sendJSON(res, 401, { error: "Λάθος όνομα χρήστη ή κωδικός" });
       }
       const token = createSession();
@@ -250,6 +276,15 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/stats/lapsed-customers" && req.method === "GET") {
       return sendJSON(res, 200, await matching.buildLapsedCustomers());
+    }
+
+    const rewardMatch = pathname.match(/^\/api\/players\/([^/]+)\/reward$/);
+    if (rewardMatch && req.method === "POST") {
+      const playerId = decodeURIComponent(rewardMatch[1]);
+      const body = await readBody(req);
+      if (!body.month) return sendJSON(res, 400, { error: "month απαιτείται (YYYY-MM)" });
+      const entry = rewards.markRewardGiven(playerId, body.month, body.note);
+      return sendJSON(res, 200, { ok: true, reward: entry });
     }
 
     const reengageMatch = pathname.match(/^\/api\/players\/([^/]+)\/reengage$/);

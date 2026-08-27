@@ -10,6 +10,7 @@
 
 const playtomic = require("./playtomicClient");
 const notifications = require("./notifications");
+const rewards = require("./rewards");
 
 const LEVEL_TOLERANCE = 0.3; // πόσο μπορεί να διαφέρει το επίπεδο για να θεωρηθεί "ταίρι"
 const RECENT_NOTIFY_HOURS = 48; // μετά από πόσες ώρες ξαναθεωρείται "φρέσκος" ένας παίκτης που ειδοποιήθηκε
@@ -258,6 +259,12 @@ async function buildDashboard(date) {
   const trainingPct = totalTypeCount ? Math.round((trainingCount / totalTypeCount) * 100) : 0;
   const gamePct = 100 - trainingPct;
 
+  // Εκτιμώμενα έσοδα της ημέρας — μόνο αν έχει οριστεί η τιμή/ώρα ανά γήπεδο
+  // (COURT_RATE_PER_HOUR στο hosting). Κάθε slot είναι 30 λεπτά, άρα
+  // slots * 0.5 * τιμή/ώρα.
+  const hourlyRate = parseFloat(process.env.COURT_RATE_PER_HOUR);
+  const estimatedRevenue = Number.isFinite(hourlyRate) ? Math.round(bookedSlots * 0.5 * hourlyRate) : null;
+
   return {
     date,
     occupancyPct,
@@ -266,6 +273,7 @@ async function buildDashboard(date) {
     gapSlots,
     trainingPct,
     gamePct,
+    estimatedRevenue,
   };
 }
 
@@ -522,11 +530,19 @@ async function buildPlayerActivity() {
       // αν δεν υπάρχει ακόμα (νέος πελάτης), κάνουμε προβολή του τρέχοντος
       // μισοτελειωμένου μήνα στις υπόλοιπες μέρες, ώστε να μη φαίνεται
       // άδικα "μη τακτικός" απλά επειδή ο μήνας μόλις ξεκίνησε.
+      const vipMonth = lastCompleteKey || currentMonthKey;
       const rateForVip = lastCompleteKey
         ? byMonth[lastCompleteKey] || 0
         : daysSoFar
         ? Math.round(((byMonth[currentMonthKey] || 0) / daysSoFar) * daysInCurrentMonth)
         : 0;
+      const isVip = rateForVip >= VIP_THRESHOLD_PER_MONTH;
+
+      // Πόσα παιχνίδια λείπουν ΑΥΤΟΝ τον μήνα (τον τρέχοντα, όχι προβολή) για
+      // να φτάσει το όριο VIP — μόνο χρήσιμο ενόσω δεν είναι ήδη VIP.
+      const gamesToVip = isVip
+        ? 0
+        : Math.max(VIP_THRESHOLD_PER_MONTH - (byMonth[currentMonthKey] || 0), 0);
 
       return {
         id: pid,
@@ -534,7 +550,10 @@ async function buildPlayerActivity() {
         level: player ? player.level : null,
         total,
         byMonth,
-        vip: rateForVip >= VIP_THRESHOLD_PER_MONTH,
+        vip: isVip,
+        vipMonth,
+        gamesToVip,
+        rewardGiven: rewards.hasRewardForMonth(pid, vipMonth),
       };
     })
     .filter((p) => p.total > 0)
