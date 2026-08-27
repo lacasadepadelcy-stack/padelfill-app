@@ -85,6 +85,39 @@ function sendGapNotification(player, gapInfo, lang = "el") {
     // (δεν έκλεισε) — ενημερώνεται χειροκίνητα από το προσωπικό αργότερα,
     // αφού δουν αν ο παίκτης πράγματι έκλεισε το κενό.
     outcome: null,
+    type: "gap",
+  };
+  return record(entry);
+}
+
+// Ζεστό μήνυμα προς παίκτη που έπαιζε τακτικά αλλά έχει καιρό να έρθει —
+// χωρίς αναφορά σε συγκεκριμένη ώρα/κενό (reengagement, όχι πρόσκληση για
+// συγκεκριμένο κενό).
+function buildReengagementMessage(player, lang) {
+  const firstName = String(player.name || "").trim().split(/\s+/)[0];
+  if (lang === "en") {
+    return `Hi ${firstName}, we've missed you at the courts! Would you like to come play again soon?`;
+  }
+  return `Hi ${firstName}, s' exoume leipsi apo to gipedo! Tha itheles na erthis na pexis ksana sintoma?`;
+}
+
+function sendReengagementNotification(player, lang = "el") {
+  const safeLang = lang === "en" ? "en" : "el";
+  const message = buildReengagementMessage(player, safeLang);
+  const whatsappUrl = buildWhatsAppLink(player.phone, message);
+  const entry = {
+    id: `n${log.length + 1}`,
+    playerId: player.id,
+    playerName: player.name,
+    channel: whatsappUrl ? "whatsapp" : "app-notification",
+    lang: safeLang,
+    message,
+    whatsappUrl,
+    gapId: null,
+    date: null,
+    sentAt: new Date().toISOString(),
+    outcome: null,
+    type: "reengagement",
   };
   return record(entry);
 }
@@ -144,6 +177,7 @@ function getReliability(playerId) {
 
 module.exports = {
   sendGapNotification,
+  sendReengagementNotification,
   getLog,
   getRecentlyNotifiedIds,
   setOutcome,

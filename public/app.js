@@ -598,9 +598,26 @@ async function loadCustomers() {
   container.innerHTML = "";
   container.appendChild(el("p", "Φόρτωση...", "sub"));
 
-  const res = await fetch("/api/stats/players");
+  const [res, lapsedRes, notifRes] = await Promise.all([
+    fetch("/api/stats/players"),
+    fetch("/api/stats/lapsed-customers"),
+    fetch("/api/notifications"),
+  ]);
   const data = await res.json();
+  const lapsedData = await lapsedRes.json();
+  const notifData = await notifRes.json();
   container.innerHTML = "";
+
+  const langWrap = document.createElement("div");
+  langWrap.className = "levelfilter";
+  langWrap.innerHTML = `
+    <span>Γλώσσα μηνύματος</span>
+    <select id="customersLang">
+      <option value="el">Greeklish</option>
+      <option value="en">English</option>
+    </select>
+  `;
+  container.appendChild(langWrap);
 
   if (!data.players?.length) {
     container.appendChild(el("p", "Δεν υπάρχει ακόμα αρκετό ιστορικό παιχνιδιών.", "sub"));
@@ -656,6 +673,67 @@ async function loadCustomers() {
 
   wrap.appendChild(table);
   container.appendChild(wrap);
+
+  // Χαμένοι πελάτες: έπαιζαν τακτικά αλλά έχουν καιρό να έρθουν — ευκαιρία
+  // για ένα φιλικό μήνυμα "μας λείψατε" ώστε να μην τους χάσουμε οριστικά.
+  const REENGAGE_COOLDOWN_DAYS = 14;
+  const lastReengageByPlayer = new Map(); // playerId -> sentAt (πιο πρόσφατη reengagement ειδοποίηση)
+  (notifData.notifications || []).forEach((n) => {
+    if (n.type !== "reengagement") return;
+    const prev = lastReengageByPlayer.get(n.playerId);
+    if (!prev || n.sentAt > prev) lastReengageByPlayer.set(n.playerId, n.sentAt);
+  });
+
+  if (lapsedData.lapsed?.length) {
+    container.appendChild(el("div", "Χαμένοι πελάτες", "dateheader"));
+    container.appendChild(
+      el(
+        "p",
+        `Έπαιζαν τακτικά (${lapsedData.minGames}+ παιχνίδια) αλλά έχουν ${lapsedData.daysThreshold}+ μέρες να έρθουν.`,
+        "sub"
+      )
+    );
+
+    lapsedData.lapsed.forEach((p) => {
+      const row = el("div", "", "player");
+      const info = el(
+        "span",
+        `${p.name} · Επίπεδο ${p.level ?? "—"} · ${p.daysSinceLastPlay} μέρες χωρίς παιχνίδι (${p.totalGames} συνολικά)`
+      );
+      const actions = el("div", "", "actions");
+
+      const lastSent = lastReengageByPlayer.get(p.id);
+      const cooldownActive =
+        lastSent && (Date.now() - new Date(lastSent).getTime()) / 86400000 < REENGAGE_COOLDOWN_DAYS;
+
+      if (cooldownActive) {
+        actions.appendChild(el("span", "Ειδοποιήθηκε πρόσφατα ✓", "notified"));
+      } else {
+        const btn = el("button", "Ειδοποίησε");
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          btn.textContent = "...";
+          const lang = document.getElementById("customersLang")?.value || "el";
+          const res2 = await fetch(`/api/players/${encodeURIComponent(p.id)}/reengage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lang }),
+          });
+          const result = await res2.json();
+          actions.innerHTML = "";
+          actions.appendChild(el("span", "Στάλθηκε ✓", "notified"));
+          if (result.notification?.whatsappUrl) {
+            window.open(result.notification.whatsappUrl, "_blank");
+          }
+        });
+        actions.appendChild(btn);
+      }
+
+      row.appendChild(info);
+      row.appendChild(actions);
+      container.appendChild(row);
+    });
+  }
 }
 
 function metric(label, value) {

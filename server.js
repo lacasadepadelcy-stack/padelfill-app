@@ -248,6 +248,21 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, await matching.buildPlayerActivity());
     }
 
+    if (pathname === "/api/stats/lapsed-customers" && req.method === "GET") {
+      return sendJSON(res, 200, await matching.buildLapsedCustomers());
+    }
+
+    const reengageMatch = pathname.match(/^\/api\/players\/([^/]+)\/reengage$/);
+    if (reengageMatch && req.method === "POST") {
+      const playerId = decodeURIComponent(reengageMatch[1]);
+      const body = await readBody(req);
+      const players = await playtomic.getPlayers();
+      const player = players.find((p) => p.id === playerId);
+      if (!player) return sendJSON(res, 404, { error: "Άγνωστος παίκτης" });
+      const entry = notifications.sendReengagementNotification(player, body.lang);
+      return sendJSON(res, 200, { sent: true, notification: entry });
+    }
+
     const historyMatch = pathname.match(/^\/api\/players\/([^/]+)\/history$/);
     if (historyMatch && req.method === "GET") {
       const playerId = decodeURIComponent(historyMatch[1]);

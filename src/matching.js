@@ -543,6 +543,50 @@ async function buildPlayerActivity() {
   return { months, players: activity, vipThreshold: VIP_THRESHOLD_PER_MONTH };
 }
 
+// Πόσα παιχνίδια χρειάζεται να έχει παίξει κάποιος ιστορικά για να θεωρηθεί
+// "τακτικός" πελάτης (όχι απλά κάποιος που δοκίμασε μία φορά και δεν ξανάρθε).
+const LAPSED_MIN_HISTORICAL_GAMES = 4;
+// Πόσες μέρες χωρίς κανένα παιχνίδι θεωρούνται "σταμάτησε να έρχεται".
+const LAPSED_DAYS_THRESHOLD = 14;
+
+// Εντοπίζει παίκτες που έπαιζαν τακτικά αλλά έχουν καιρό να εμφανιστούν —
+// καλοί υποψήφιοι για ένα φιλικό μήνυμα "μας λείψατε" ώστε να μην τους
+// χάσουμε οριστικά ως πελάτες.
+async function buildLapsedCustomers() {
+  const [matches, players] = await Promise.all([playtomic.getPastMatches(), playtomic.getPlayers()]);
+  const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
+
+  const statsByPlayer = new Map(); // playerId -> { count, lastDate }
+  matches.forEach((m) => {
+    m.players.forEach((pid) => {
+      if (!statsByPlayer.has(pid)) statsByPlayer.set(pid, { count: 0, lastDate: null });
+      const s = statsByPlayer.get(pid);
+      s.count += 1;
+      if (!s.lastDate || m.date > s.lastDate) s.lastDate = m.date;
+    });
+  });
+
+  const todayMs = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`).getTime();
+
+  const lapsed = Array.from(statsByPlayer.entries())
+    .map(([pid, s]) => {
+      const player = playerById[pid];
+      const daysSince = Math.round((todayMs - new Date(`${s.lastDate}T00:00:00Z`).getTime()) / 86400000);
+      return {
+        id: pid,
+        name: player ? player.name : "Άγνωστος παίκτης",
+        level: player ? player.level : null,
+        totalGames: s.count,
+        lastPlayedDate: s.lastDate,
+        daysSinceLastPlay: daysSince,
+      };
+    })
+    .filter((p) => p.totalGames >= LAPSED_MIN_HISTORICAL_GAMES && p.daysSinceLastPlay >= LAPSED_DAYS_THRESHOLD)
+    .sort((a, b) => b.daysSinceLastPlay - a.daysSinceLastPlay);
+
+  return { lapsed, minGames: LAPSED_MIN_HISTORICAL_GAMES, daysThreshold: LAPSED_DAYS_THRESHOLD };
+}
+
 module.exports = {
   buildSchedule,
   suggestPlayersForGap,
@@ -552,4 +596,5 @@ module.exports = {
   reconcileNotificationOutcomes,
   buildMonthlyTrend,
   buildPlayerActivity,
+  buildLapsedCustomers,
 };
