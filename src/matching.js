@@ -13,6 +13,18 @@ const notifications = require("./notifications");
 
 const LEVEL_TOLERANCE = 0.3; // πόσο μπορεί να διαφέρει το επίπεδο για να θεωρηθεί "ταίρι"
 const RECENT_NOTIFY_HOURS = 48; // μετά από πόσες ώρες ξαναθεωρείται "φρέσκος" ένας παίκτης που ειδοποιήθηκε
+// Πόσο "βαραίνει" η αξιοπιστία (ιστορικό ανταπόκρισης) στην τελική σειρά —
+// αρκετά μικρό ώστε να μην ανατρέπει ποτέ ένα σαφώς καλύτερο ταίριασμα
+// επιπέδου, αλλά αρκετό για να ξεχωρίζει ανάμεσα σε παρόμοιους υποψήφιους.
+const RELIABILITY_NUDGE = 0.15;
+
+// Βαθμός αξιοπιστίας 0-1 (πόσο συχνά έκλεισε γήπεδο όταν ειδοποιήθηκε).
+// Παίκτες χωρίς κανένα ιστορικό ακόμα θεωρούνται ουδέτεροι (0.5) — δεν
+// τιμωρούνται απλά επειδή δεν έχουν ξαναειδοποιηθεί.
+function reliabilityWeight(playerId) {
+  const rel = notifications.getReliability(playerId);
+  return rel ? rel.booked / rel.sent : 0.5;
+}
 
 // Απλό, ντετερμινιστικό "ανακάτεμα" (ίδιο seed -> ίδιο αποτέλεσμα, ώστε η
 // σελίδα να μη δείχνει διαφορετικά ονόματα σε κάθε refresh, αλλά ΔΙΑΦΟΡΕΤΙΚΟ
@@ -176,17 +188,23 @@ async function suggestPlayersForGap(gapId, date, options = {}) {
 
   if (hasManualRange || targetLevel !== null) {
     // Έχουμε συγκεκριμένη ένδειξη επιπέδου (χειροκίνητο εύρος ή γειτονικό
-    // παιχνίδι) -> ταξινόμηση με βάση αυτήν, όπως πριν.
+    // παιχνίδι) -> ταξινόμηση με βάση αυτήν, με μικρή "ώθηση" υπέρ όσων
+    // ιστορικά ανταποκρίνονται περισσότερο όταν ισοπαλεύουν σε ταίριασμα.
     candidates.sort((a, b) => {
-      if (hasManualRange) return a.level - b.level;
-      return Math.abs(a.level - targetLevel) - Math.abs(b.level - targetLevel);
+      const baseA = hasManualRange ? a.level : Math.abs(a.level - targetLevel);
+      const baseB = hasManualRange ? b.level : Math.abs(b.level - targetLevel);
+      const scoreA = baseA - reliabilityWeight(a.id) * RELIABILITY_NUDGE;
+      const scoreB = baseB - reliabilityWeight(b.id) * RELIABILITY_NUDGE;
+      return scoreA - scoreB;
     });
   } else {
     // Καμία ένδειξη επιπέδου -> αντί να δείχνουμε πάντα τους ίδιους (πάντα
     // τους χαμηλότερου επιπέδου, αφού πριν ταξινομούσαμε αύξουσα), κάνουμε
-    // ένα ντετερμινιστικό ανακάτεμα ώστε να αλλάζουν τα προτεινόμενα άτομα
-    // (και τα επίπεδά τους) ανά κενό/ημέρα.
+    // πρώτα ένα ντετερμινιστικό ανακάτεμα (ποικιλία) και μετά προτεραιότητα
+    // σε όσους ιστορικά ανταποκρίνονται περισσότερο (οι χωρίς ιστορικό
+    // μένουν στη σειρά του ανακατέματος μεταξύ τους).
     candidates = seededShuffle(candidates, `${date}|${gapId}`);
+    candidates.sort((a, b) => reliabilityWeight(b.id) - reliabilityWeight(a.id));
   }
 
   // Όσοι έχουν ειδοποιηθεί πρόσφατα (τελευταίες 48 ώρες, για ΟΠΟΙΟΔΗΠΟΤΕ
@@ -197,14 +215,20 @@ async function suggestPlayersForGap(gapId, date, options = {}) {
   const stale = candidates.filter((p) => recentlyNotified.has(p.id));
   candidates = [...fresh, ...stale];
 
+  // Ακόμα κι αν η λίστα candidates έχει μεγάλο εύρος επιπέδων (π.χ. όταν δεν
+  // υπάρχει γειτονικό παιχνίδι για ένδειξη), η τελική λίστα προτάσεων
+  // περιορίζεται ώστε η μέγιστη διαφορά επιπέδου ανάμεσα σε δύο παίκτες της
+  // να μην ξεπερνά το SUGGESTION_LEVEL_SPREAD (0.30). Προσθέτουμε και το
+  // ιστορικό αξιοπιστίας σε κάθε πρόταση (για εμφάνιση στο UI).
+  const finalSuggestions = pickWithinLevelSpread(candidates, limit, SUGGESTION_LEVEL_SPREAD).map((p) => ({
+    ...p,
+    reliability: notifications.getReliability(p.id),
+  }));
+
   return {
     targetLevel,
     levelRange: hasManualRange ? { minLevel, maxLevel } : null,
-    // Ακόμα κι αν η λίστα candidates έχει μεγάλο εύρος επιπέδων (π.χ. όταν
-    // δεν υπάρχει γειτονικό παιχνίδι για ένδειξη), η τελική λίστα προτάσεων
-    // περιορίζεται ώστε η μέγιστη διαφορά επιπέδου ανάμεσα σε δύο παίκτες
-    // της να μην ξεπερνά το SUGGESTION_LEVEL_SPREAD (0.30).
-    suggestions: pickWithinLevelSpread(candidates, limit, SUGGESTION_LEVEL_SPREAD),
+    suggestions: finalSuggestions,
   };
 }
 

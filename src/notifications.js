@@ -131,4 +131,22 @@ function getRecentlyNotifiedIds(hours = 48) {
   return ids;
 }
 
-module.exports = { sendGapNotification, getLog, getRecentlyNotifiedIds, setOutcome, getStats };
+// Ιστορικό αξιοπιστίας ενός παίκτη: από πόσες ειδοποιήσεις με γνωστό
+// αποτέλεσμα, πόσες οδήγησαν τελικά σε κλείσιμο γηπέδου. Επιστρέφει null αν
+// δεν υπάρχει ακόμα κανένα γνωστό αποτέλεσμα γι' αυτόν τον παίκτη (ώστε το
+// matching.js να τον αντιμετωπίζει ουδέτερα, όχι σαν αναξιόπιστο).
+function getReliability(playerId) {
+  const entries = log.filter((n) => n.playerId === playerId && n.outcome !== null);
+  if (!entries.length) return null;
+  const booked = entries.filter((n) => n.outcome === "booked").length;
+  return { sent: entries.length, booked, pct: Math.round((booked / entries.length) * 100) };
+}
+
+module.exports = {
+  sendGapNotification,
+  getLog,
+  getRecentlyNotifiedIds,
+  setOutcome,
+  getStats,
+  getReliability,
+};

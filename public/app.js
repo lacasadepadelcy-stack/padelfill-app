@@ -360,7 +360,8 @@ async function loadWeeklyGaps() {
 // γλώσσα μηνύματος (διαφορετικό select id ανάλογα με την προβολή).
 function buildSuggestionRow(gap, p, existingEntry, getLang) {
   const row = el("div", "", "player");
-  const info = el("span", `${p.name} · Επίπεδο ${p.level}`);
+  const reliabilityText = p.reliability ? ` · ${p.reliability.pct}% ανταπόκριση (${p.reliability.sent})` : "";
+  const info = el("span", `${p.name} · Επίπεδο ${p.level}${reliabilityText}`);
   const actions = el("div", "", "actions");
 
   if (existingEntry) {
