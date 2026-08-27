@@ -240,7 +240,7 @@ const server = http.createServer(async (req, res) => {
     if (notifyMatch && req.method === "POST") {
       const gapId = decodeURIComponent(notifyMatch[1]);
       const body = await readBody(req);
-      const { playerId, date, lang } = body;
+      const { playerId, date, lang, kind } = body;
       if (!playerId) return sendJSON(res, 400, { error: "playerId απαιτείται" });
 
       const [courtId, time] = gapId.split("__");
@@ -250,7 +250,7 @@ const server = http.createServer(async (req, res) => {
       const player = players.find((p) => p.id === playerId);
       if (!player) return sendJSON(res, 404, { error: "Άγνωστος παίκτης" });
 
-      const entry = notifications.sendGapNotification(player, { gapId, time, courtName, date }, lang);
+      const entry = notifications.sendGapNotification(player, { gapId, time, courtName, date, kind }, lang);
       return sendJSON(res, 200, { sent: true, notification: entry });
     }
 
@@ -300,6 +300,11 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/stats/lapsed-customers" && req.method === "GET") {
       return sendJSON(res, 200, await matching.buildLapsedCustomers());
+    }
+
+    if (pathname === "/api/matches/open" && req.method === "GET") {
+      const days = parseInt(searchParams.get("days"), 10) || 7;
+      return sendJSON(res, 200, { report: await matching.buildOpenMatches(days) });
     }
 
     const rewardMatch = pathname.match(/^\/api\/players\/([^/]+)\/reward$/);

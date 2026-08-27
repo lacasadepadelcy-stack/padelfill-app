@@ -58,6 +58,16 @@ function buildMessage(player, gapInfo, lang) {
   const when = dayLabel(gapInfo.date, lang);
   // Μόνο το μικρό όνομα (όχι επίθετο) — πιο προσωπικό/φυσικό ύφος.
   const firstName = String(player.name || "").trim().split(/\s+/)[0];
+
+  // "Ανοιχτό παιχνίδι" (Open Match): υπάρχει ήδη κράτηση/παιχνίδι σε εξέλιξη
+  // αλλά λείπουν παίκτες — διαφορετικό μήνυμα από ένα εντελώς άδειο γήπεδο.
+  if (gapInfo.kind === "openmatch") {
+    if (lang === "en") {
+      return `Hi ${firstName}, there's an open match ${when} at ${gapInfo.time} looking for players — want to join?`;
+    }
+    return `Hi ${firstName}, exi ena open match ${when} stis ${gapInfo.time} pou psaxni akoma pextes — theleis na mpis;`;
+  }
+
   if (lang === "en") {
     return `Hi ${firstName}, would you like to play padel ${when} at ${gapInfo.time}?`;
   }

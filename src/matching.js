@@ -651,6 +651,69 @@ async function buildLapsedCustomers() {
   return { lapsed, minGames: LAPSED_MIN_HISTORICAL_GAMES, daysThreshold: LAPSED_DAYS_THRESHOLD };
 }
 
+// Πόσοι παίκτες χρειάζονται για ένα πλήρες παιχνίδι padel (2 εναντίον 2).
+const GAME_FULL_SIZE = 4;
+
+// Εντοπίζει "ανοιχτά παιχνίδια" (ό,τι στο Playtomic λέγεται "Open Match"):
+// κρατήσεις τύπου "παιχνίδι" που ΥΠΑΡΧΟΥΝ αλλά δεν έχουν συμπληρώσει τους 4
+// παίκτες — π.χ. έκλεισαν το γήπεδο 2 άτομα και ψάχνουν άλλους 2. Διαφορετικό
+// από τα "κενά": εδώ η κράτηση υπάρχει, απλά λείπουν παίκτες. Χρησιμοποιούμε
+// το ΑΚΡΙΒΕΣ μέσο επίπεδο των ήδη υπαρχόντων παικτών ως στόχο — πιο ακριβές
+// από την εικασία που κάνουμε για τα κενά (γειτονικό παιχνίδι).
+async function buildOpenMatches(days = 7) {
+  const dates = playtomic.getUpcomingDates(days);
+  const report = [];
+  const suggestionUsage = new Map();
+
+  for (const { date, label } of dates) {
+    const schedule = await buildSchedule(date);
+
+    for (const { court, slots } of schedule) {
+      const seen = new Set(); // ένα παιχνίδι μπορεί να καλύπτει πολλά slots (span) — μετράμε μία φορά
+      for (const s of slots) {
+        if (s.status !== "booked" || s.type !== "game") continue;
+        const key = `${s.startTime}__${s.endTime}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const currentPlayers = s.players || [];
+        const missing = GAME_FULL_SIZE - currentPlayers.length;
+        if (missing <= 0) continue;
+
+        const levels = currentPlayers.map((p) => p.level).filter((l) => typeof l === "number");
+        const targetLevel = levels.length ? levels.reduce((a, b) => a + b, 0) / levels.length : null;
+
+        const gapId = `${court.id}__${s.startTime}`;
+        const { suggestions: pool } = await suggestPlayersForGap(gapId, date, {
+          minLevel: targetLevel !== null ? targetLevel - LEVEL_TOLERANCE : undefined,
+          maxLevel: targetLevel !== null ? targetLevel + LEVEL_TOLERANCE : undefined,
+        });
+
+        const ranked = [...pool].sort(
+          (a, b) => (suggestionUsage.get(a.id) || 0) - (suggestionUsage.get(b.id) || 0)
+        );
+        const chosen = ranked.slice(0, missing + 2); // λίγοι παραπάνω υποψήφιοι από όσοι λείπουν, για επιλογή
+        chosen.forEach((p) => suggestionUsage.set(p.id, (suggestionUsage.get(p.id) || 0) + 1));
+
+        report.push({
+          date,
+          dateLabel: label,
+          court,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          existingPlayers: currentPlayers,
+          spotsNeeded: missing,
+          targetLevel,
+          gapId,
+          suggestions: chosen,
+        });
+      }
+    }
+  }
+
+  return report;
+}
+
 module.exports = {
   buildSchedule,
   suggestPlayersForGap,
@@ -661,4 +724,5 @@ module.exports = {
   buildMonthlyTrend,
   buildPlayerActivity,
   buildLapsedCustomers,
+  buildOpenMatches,
 };

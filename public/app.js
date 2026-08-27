@@ -20,6 +20,7 @@ const navBtns = document.querySelectorAll(".navbtn");
 const views = {
   schedule: document.getElementById("view-schedule"),
   weekly: document.getElementById("view-weekly"),
+  openmatches: document.getElementById("view-openmatches"),
   swipe: document.getElementById("view-swipe"),
   dash: document.getElementById("view-dash"),
   customers: document.getElementById("view-customers"),
@@ -35,6 +36,7 @@ function setView(name) {
   navBtns.forEach((b) => b.classList.toggle("active", b.dataset.view === name));
   if (name === "schedule") loadSchedule();
   if (name === "weekly") loadWeeklyGaps();
+  if (name === "openmatches") loadOpenMatches();
   if (name === "swipe") loadSwipeCandidate();
   if (name === "dash") loadDashboard();
   if (name === "customers") loadCustomers();
@@ -390,7 +392,7 @@ function buildSuggestionRow(gap, p, existingEntry, getLang) {
       const notifyRes = await fetch(`/api/gaps/${encodeURIComponent(gap.gapId)}/notify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId: p.id, date: gap.date, lang }),
+        body: JSON.stringify({ playerId: p.id, date: gap.date, lang, kind: gap.kind }),
       });
       const result = await notifyRes.json();
       actions.innerHTML = "";
@@ -426,7 +428,7 @@ async function notifyAll(gap, players, buttonEl, cardEl, notifiedMap, getLang) {
       const notifyRes = await fetch(`/api/gaps/${encodeURIComponent(gap.gapId)}/notify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId: p.id, date: gap.date, lang }),
+        body: JSON.stringify({ playerId: p.id, date: gap.date, lang, kind: gap.kind }),
       });
       const result = await notifyRes.json();
       if (result.notification) freshEntries.set(p.id, result.notification);
@@ -447,6 +449,83 @@ async function notifyAll(gap, players, buttonEl, cardEl, notifiedMap, getLang) {
   gap.suggestions.forEach((p) => {
     const entry = freshEntries.get(p.id) || notifiedMap.get(`${gap.gapId}|${p.id}`);
     cardEl.appendChild(buildSuggestionRow(gap, p, entry, getLang));
+  });
+}
+
+// "Ανοιχτά παιχνίδια" (Open Match): παιχνίδια που έχουν ήδη κλειστεί αλλά
+// λείπουν παίκτες (π.χ. 2 από τους 4) — διαφορετικό από τα κενά, εδώ η
+// κράτηση υπάρχει ήδη. Δείχνει ποιοι παίζουν ήδη και προτείνει παίκτες
+// αντίστοιχου επιπέδου για τις υπόλοιπες θέσεις.
+async function loadOpenMatches() {
+  const container = views.openmatches;
+  container.innerHTML = "";
+
+  const langWrap = document.createElement("div");
+  langWrap.className = "levelfilter";
+  langWrap.innerHTML = `
+    <span>Γλώσσα μηνύματος</span>
+    <select id="openMatchLang">
+      <option value="el">Greeklish</option>
+      <option value="en">English</option>
+    </select>
+  `;
+  container.appendChild(langWrap);
+
+  const loadingMsg = el("p", "Φόρτωση...", "sub");
+  container.appendChild(loadingMsg);
+
+  const [res, notifRes] = await Promise.all([
+    fetch("/api/matches/open?days=7"),
+    fetch("/api/notifications"),
+  ]);
+  const data = await res.json();
+  const notifData = await notifRes.json();
+  container.removeChild(loadingMsg);
+
+  const notifiedMap = new Map((notifData.notifications || []).map((n) => [`${n.gapId}|${n.playerId}`, n]));
+  const getLang = () => document.getElementById("openMatchLang")?.value || "el";
+
+  if (!data.report.length) {
+    container.appendChild(el("p", "Δεν υπάρχουν ανοιχτά παιχνίδια τις επόμενες 7 μέρες.", "sub"));
+    return;
+  }
+
+  let lastDate = null;
+  data.report.forEach((match) => {
+    if (match.date !== lastDate) {
+      container.appendChild(el("div", match.dateLabel, "dateheader"));
+      lastDate = match.date;
+    }
+
+    const card = document.createElement("div");
+    card.className = "gapcard";
+
+    const timeRange = `${match.startTime}–${match.endTime}`;
+    const levelText = match.targetLevel ? ` · επίπεδο ~${match.targetLevel.toFixed(1)}` : "";
+    card.appendChild(
+      el("div", `${match.court.name} · ${timeRange}${levelText} · λείπουν ${match.spotsNeeded}`, "gapcard-title")
+    );
+
+    const existingNames = (match.existingPlayers || [])
+      .map((p) => `${p.name}${typeof p.level === "number" ? ` (${p.level})` : ""}`)
+      .join(", ");
+    if (existingNames) {
+      card.appendChild(el("p", `Ήδη παίζουν: ${existingNames}`, "sub"));
+    }
+
+    const gapWithKind = { gapId: match.gapId, date: match.date, kind: "openmatch" };
+
+    if (!match.suggestions.length) {
+      card.appendChild(el("p", "Δεν βρέθηκαν κατάλληλοι παίκτες.", "sub"));
+    } else {
+      match.suggestions.forEach((p) => {
+        card.appendChild(
+          buildSuggestionRow(gapWithKind, p, notifiedMap.get(`${match.gapId}|${p.id}`), getLang)
+        );
+      });
+    }
+
+    container.appendChild(card);
   });
 }
 
