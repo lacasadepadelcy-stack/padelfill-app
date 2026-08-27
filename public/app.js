@@ -608,7 +608,11 @@ async function loadCustomers() {
   }
 
   container.appendChild(
-    el("p", `Παιχνίδια ανά πελάτη, ανά μήνα (${data.months.length} μήνες ιστορικού)`, "sub")
+    el(
+      "p",
+      `Παιχνίδια ανά πελάτη, ανά μήνα (${data.months.length} μήνες ιστορικού) · VIP = ${data.vipThreshold}+ παιχνίδια/μήνα`,
+      "sub"
+    )
   );
 
   const wrap = document.createElement("div");
@@ -634,6 +638,7 @@ async function loadCustomers() {
       nameCell.appendChild(rankBadge);
     }
     nameCell.appendChild(document.createTextNode(p.name));
+    if (p.vip) nameCell.appendChild(el("span", "VIP", "vip-badge"));
     row.appendChild(nameCell);
     row.appendChild(el("td", typeof p.level === "number" ? String(p.level) : "—"));
     data.months.forEach((mk) => {

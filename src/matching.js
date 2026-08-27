@@ -474,6 +474,10 @@ async function buildMonthlyTrend() {
   return { months, trendPct };
 }
 
+// Όριο για να θεωρείται ένας πελάτης "τακτικός"/VIP — 8+ παιχνίδια τον μήνα
+// (περίπου 2 τη βδομάδα). Χρησιμοποιείται για το badge στον πίνακα πελατών.
+const VIP_THRESHOLD_PER_MONTH = 8;
+
 // Πόσα παιχνίδια έκανε ΚΑΘΕ παίκτης ανά μήνα (τελευταίοι ~3 μήνες, όσο
 // κρατάει το ιστορικό) — χρήσιμο για να φτιάξει κανείς πρόγραμμα ανταμοιβής
 // στους πιο τακτικούς πελάτες.
@@ -496,6 +500,13 @@ async function buildPlayerActivity() {
 
   const months = Array.from(monthSet).sort();
 
+  const today = new Date();
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const daysInCurrentMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysSoFar = today.getDate();
+  const completedMonths = months.filter((mk) => mk !== currentMonthKey);
+  const lastCompleteKey = completedMonths[completedMonths.length - 1];
+
   const activity = Array.from(perPlayerMonth.entries())
     .map(([pid, monthMap]) => {
       const player = playerById[pid];
@@ -506,18 +517,30 @@ async function buildPlayerActivity() {
         byMonth[mk] = count;
         total += count;
       });
+
+      // Ρυθμός για το VIP badge: προτιμάμε τον τελευταίο ΟΛΟΚΛΗΡΩΜΕΝΟ μήνα·
+      // αν δεν υπάρχει ακόμα (νέος πελάτης), κάνουμε προβολή του τρέχοντος
+      // μισοτελειωμένου μήνα στις υπόλοιπες μέρες, ώστε να μη φαίνεται
+      // άδικα "μη τακτικός" απλά επειδή ο μήνας μόλις ξεκίνησε.
+      const rateForVip = lastCompleteKey
+        ? byMonth[lastCompleteKey] || 0
+        : daysSoFar
+        ? Math.round(((byMonth[currentMonthKey] || 0) / daysSoFar) * daysInCurrentMonth)
+        : 0;
+
       return {
         id: pid,
         name: player ? player.name : "Άγνωστος παίκτης",
         level: player ? player.level : null,
         total,
         byMonth,
+        vip: rateForVip >= VIP_THRESHOLD_PER_MONTH,
       };
     })
     .filter((p) => p.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  return { months, players: activity };
+  return { months, players: activity, vipThreshold: VIP_THRESHOLD_PER_MONTH };
 }
 
 module.exports = {
