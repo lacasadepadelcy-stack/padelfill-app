@@ -27,6 +27,7 @@ const views = {
 
 let DATES = [];
 let dateIndex = 0;
+let weeklyRangeDays = 7; // επιλογή προβολής στα "Εβδομαδιαία κενά": 7 (εβδομάδα) ή 30 (μήνας)
 
 function setView(name) {
   Object.keys(views).forEach((k) => (views[k].style.display = k === name ? "" : "none"));
@@ -279,19 +280,30 @@ async function loadWeeklyGaps() {
   const langWrap = document.createElement("div");
   langWrap.className = "levelfilter";
   langWrap.innerHTML = `
-    <span>Γλώσσα μηνύματος</span>
+    <span>Προβολή</span>
+    <select id="weeklyRange">
+      <option value="7">Εβδομάδα (7 μέρες)</option>
+      <option value="30">Μήνας (30 μέρες)</option>
+    </select>
+    <span style="margin-left:8px;">Γλώσσα μηνύματος</span>
     <select id="weeklyLang">
       <option value="el">Greeklish</option>
       <option value="en">English</option>
     </select>
   `;
   container.appendChild(langWrap);
+  const rangeSelect = document.getElementById("weeklyRange");
+  rangeSelect.value = String(weeklyRangeDays);
+  rangeSelect.addEventListener("change", () => {
+    weeklyRangeDays = parseInt(rangeSelect.value, 10) || 7;
+    loadWeeklyGaps();
+  });
 
   const loadingMsg = el("p", "Φόρτωση...", "sub");
   container.appendChild(loadingMsg);
 
   const [gapsRes, notifRes] = await Promise.all([
-    fetch("/api/gaps/weekly?days=7"),
+    fetch(`/api/gaps/weekly?days=${weeklyRangeDays}`),
     fetch("/api/notifications"),
   ]);
   const data = await gapsRes.json();
