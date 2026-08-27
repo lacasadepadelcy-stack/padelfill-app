@@ -28,6 +28,7 @@ const views = {
 let DATES = [];
 let dateIndex = 0;
 let weeklyRangeDays = 7; // επιλογή προβολής στα "Εβδομαδιαία κενά": 7 (εβδομάδα) ή 30 (μήνας)
+let customersGranularity = "month"; // επιλογή προβολής στην καρτέλα "Πελάτες": "month" ή "week"
 
 function setView(name) {
   Object.keys(views).forEach((k) => (views[k].style.display = k === name ? "" : "none"));
@@ -614,7 +615,7 @@ async function loadCustomers() {
   container.appendChild(el("p", "Φόρτωση...", "sub"));
 
   const [res, lapsedRes, notifRes] = await Promise.all([
-    fetch("/api/stats/players"),
+    fetch(`/api/stats/players?granularity=${customersGranularity}`),
     fetch("/api/stats/lapsed-customers"),
     fetch("/api/notifications"),
   ]);
@@ -626,13 +627,24 @@ async function loadCustomers() {
   const langWrap = document.createElement("div");
   langWrap.className = "levelfilter";
   langWrap.innerHTML = `
-    <span>Γλώσσα μηνύματος</span>
+    <span>Προβολή</span>
+    <select id="customersGranularity">
+      <option value="month">Ανά μήνα</option>
+      <option value="week">Ανά εβδομάδα</option>
+    </select>
+    <span style="margin-left:8px;">Γλώσσα μηνύματος</span>
     <select id="customersLang">
       <option value="el">Greeklish</option>
       <option value="en">English</option>
     </select>
   `;
   container.appendChild(langWrap);
+  const granularitySelect = document.getElementById("customersGranularity");
+  granularitySelect.value = customersGranularity;
+  granularitySelect.addEventListener("change", () => {
+    customersGranularity = granularitySelect.value;
+    loadCustomers();
+  });
 
   if (!data.players?.length) {
     container.appendChild(el("p", "Δεν υπάρχει ακόμα αρκετό ιστορικό παιχνιδιών.", "sub"));
@@ -645,10 +657,11 @@ async function loadCustomers() {
   subRow.style.alignItems = "center";
   subRow.style.gap = "8px";
   subRow.style.flexWrap = "wrap";
+  const unitLabel = data.granularity === "week" ? "εβδομάδες" : "μήνες";
   subRow.appendChild(
     el(
       "p",
-      `Παιχνίδια ανά πελάτη, ανά μήνα (${data.months.length} μήνες ιστορικού) · VIP = ${data.vipThreshold}+ παιχνίδια/μήνα`,
+      `Παιχνίδια ανά πελάτη, ανά ${data.granularity === "week" ? "εβδομάδα" : "μήνα"} (${data.months.length} ${unitLabel} ιστορικού) · VIP = ${data.vipThreshold}+ παιχνίδια/μήνα`,
       "sub"
     )
   );
@@ -666,7 +679,7 @@ async function loadCustomers() {
   const headRow = document.createElement("tr");
   headRow.appendChild(el("th", "Πελάτης"));
   headRow.appendChild(el("th", "Επίπεδο"));
-  data.months.forEach((mk) => headRow.appendChild(el("th", mk)));
+  data.months.forEach((mk) => headRow.appendChild(el("th", data.monthLabels?.[mk] || mk)));
   headRow.appendChild(el("th", "Σύνολο"));
   headRow.appendChild(el("th", "Ανταμοιβή"));
   thead.appendChild(headRow);
@@ -797,7 +810,7 @@ async function loadCustomers() {
 // Κατεβάζει τον πίνακα πελατών σε CSV (ανοίγει κανονικά στο Excel) — για
 // λογιστικό ή εκτύπωση, χωρίς να χρειάζεται καμία επιπλέον βιβλιοθήκη.
 function downloadCustomersCsv(data) {
-  const header = ["Πελάτης", "Επίπεδο", ...data.months, "Σύνολο", "VIP"];
+  const header = ["Πελάτης", "Επίπεδο", ...data.months.map((mk) => data.monthLabels?.[mk] || mk), "Σύνολο", "VIP"];
   const rows = data.players.map((p) => [
     p.name,
     p.level ?? "",

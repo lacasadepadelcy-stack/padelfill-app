@@ -294,7 +294,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/stats/players" && req.method === "GET") {
-      return sendJSON(res, 200, await matching.buildPlayerActivity());
+      const granularity = searchParams.get("granularity") === "week" ? "week" : "month";
+      return sendJSON(res, 200, await matching.buildPlayerActivity(granularity));
     }
 
     if (pathname === "/api/stats/lapsed-customers" && req.method === "GET") {

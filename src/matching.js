@@ -486,45 +486,84 @@ async function buildMonthlyTrend() {
 // (περίπου 2 τη βδομάδα). Χρησιμοποιείται για το badge στον πίνακα πελατών.
 const VIP_THRESHOLD_PER_MONTH = 8;
 
-// Πόσα παιχνίδια έκανε ΚΑΘΕ παίκτης ανά μήνα (τελευταίοι ~3 μήνες, όσο
-// κρατάει το ιστορικό) — χρήσιμο για να φτιάξει κανείς πρόγραμμα ανταμοιβής
-// στους πιο τακτικούς πελάτες.
-async function buildPlayerActivity() {
+// Το "Δευτέρα αυτής της εβδομάδας" ως κλειδί εβδομάδας (YYYY-MM-DD), ώστε να
+// ομαδοποιούνται οι κρατήσεις ανά εβδομάδα όταν ζητηθεί εβδομαδιαία προβολή.
+function getWeekKey(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  const day = d.getUTCDay();
+  const diffToMonday = (day === 0 ? -6 : 1) - day;
+  const monday = new Date(d);
+  monday.setUTCDate(d.getUTCDate() + diffToMonday);
+  return monday.toISOString().slice(0, 10);
+}
+
+function formatWeekLabel(mondayKey) {
+  const monday = new Date(`${mondayKey}T00:00:00Z`);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  const fmt = (d) => `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `${fmt(monday)}–${fmt(sunday)}`;
+}
+
+// Πόσα παιχνίδια έκανε ΚΑΘΕ παίκτης ανά μήνα Ή ανά εβδομάδα (τελευταίοι ~3
+// μήνες, όσο κρατάει το ιστορικό) — χρήσιμο για να φτιάξει κανείς πρόγραμμα
+// ανταμοιβής στους πιο τακτικούς πελάτες. Το όριο VIP παραμένει πάντα "ανά
+// ημερολογιακό μήνα" (επιχειρηματικός κανόνας), ανεξάρτητα από το αν η
+// προβολή είναι ανά εβδομάδα ή ανά μήνα.
+async function buildPlayerActivity(granularity = "month") {
   const [matches, players] = await Promise.all([playtomic.getPastMatches(), playtomic.getPlayers()]);
   const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
 
-  const perPlayerMonth = new Map(); // playerId -> Map(monthKey -> count)
-  const monthSet = new Set();
+  const isWeekly = granularity === "week";
+  const bucketKeyFor = (dateStr) => (isWeekly ? getWeekKey(dateStr) : dateStr.slice(0, 7));
+  const bucketLabelFor = (key) => {
+    if (isWeekly) return formatWeekLabel(key);
+    const [y, mo] = key.split("-").map(Number);
+    return `${MONTH_NAMES_EL[mo - 1]} ${y}`;
+  };
+
+  const perPlayerBucket = new Map(); // playerId -> Map(bucketKey -> count) — για την προβολή
+  const perPlayerMonth = new Map(); // playerId -> Map(monthKey -> count) — πάντα ανά μήνα, για το VIP
+  const bucketSet = new Set();
 
   matches.forEach((m) => {
+    const bucketKey = bucketKeyFor(m.date);
     const monthKey = m.date.slice(0, 7);
-    monthSet.add(monthKey);
+    bucketSet.add(bucketKey);
     m.players.forEach((pid) => {
+      if (!perPlayerBucket.has(pid)) perPlayerBucket.set(pid, new Map());
+      const bm = perPlayerBucket.get(pid);
+      bm.set(bucketKey, (bm.get(bucketKey) || 0) + 1);
+
       if (!perPlayerMonth.has(pid)) perPlayerMonth.set(pid, new Map());
-      const monthMap = perPlayerMonth.get(pid);
-      monthMap.set(monthKey, (monthMap.get(monthKey) || 0) + 1);
+      const mm = perPlayerMonth.get(pid);
+      mm.set(monthKey, (mm.get(monthKey) || 0) + 1);
     });
   });
 
-  const months = Array.from(monthSet).sort();
+  const buckets = Array.from(bucketSet).sort();
+  const bucketLabels = Object.fromEntries(buckets.map((k) => [k, bucketLabelFor(k)]));
 
   const today = new Date();
   const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
   const daysInCurrentMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const daysSoFar = today.getDate();
-  const completedMonths = months.filter((mk) => mk !== currentMonthKey);
+  const allMonths = Array.from(new Set(matches.map((m) => m.date.slice(0, 7)))).sort();
+  const completedMonths = allMonths.filter((mk) => mk !== currentMonthKey);
   const lastCompleteKey = completedMonths[completedMonths.length - 1];
 
-  const activity = Array.from(perPlayerMonth.entries())
-    .map(([pid, monthMap]) => {
+  const activity = Array.from(perPlayerBucket.entries())
+    .map(([pid, bucketMap]) => {
       const player = playerById[pid];
-      const byMonth = {};
+      const byBucket = {};
       let total = 0;
-      months.forEach((mk) => {
-        const count = monthMap.get(mk) || 0;
-        byMonth[mk] = count;
+      buckets.forEach((k) => {
+        const count = bucketMap.get(k) || 0;
+        byBucket[k] = count;
         total += count;
       });
+
+      const monthMap = perPlayerMonth.get(pid) || new Map();
 
       // Ρυθμός για το VIP badge: προτιμάμε τον τελευταίο ΟΛΟΚΛΗΡΩΜΕΝΟ μήνα·
       // αν δεν υπάρχει ακόμα (νέος πελάτης), κάνουμε προβολή του τρέχοντος
@@ -532,9 +571,9 @@ async function buildPlayerActivity() {
       // άδικα "μη τακτικός" απλά επειδή ο μήνας μόλις ξεκίνησε.
       const vipMonth = lastCompleteKey || currentMonthKey;
       const rateForVip = lastCompleteKey
-        ? byMonth[lastCompleteKey] || 0
+        ? monthMap.get(lastCompleteKey) || 0
         : daysSoFar
-        ? Math.round(((byMonth[currentMonthKey] || 0) / daysSoFar) * daysInCurrentMonth)
+        ? Math.round(((monthMap.get(currentMonthKey) || 0) / daysSoFar) * daysInCurrentMonth)
         : 0;
       const isVip = rateForVip >= VIP_THRESHOLD_PER_MONTH;
 
@@ -542,14 +581,14 @@ async function buildPlayerActivity() {
       // να φτάσει το όριο VIP — μόνο χρήσιμο ενόσω δεν είναι ήδη VIP.
       const gamesToVip = isVip
         ? 0
-        : Math.max(VIP_THRESHOLD_PER_MONTH - (byMonth[currentMonthKey] || 0), 0);
+        : Math.max(VIP_THRESHOLD_PER_MONTH - (monthMap.get(currentMonthKey) || 0), 0);
 
       return {
         id: pid,
         name: player ? player.name : "Άγνωστος παίκτης",
         level: player ? player.level : null,
         total,
-        byMonth,
+        byMonth: byBucket,
         vip: isVip,
         vipMonth,
         gamesToVip,
@@ -559,7 +598,13 @@ async function buildPlayerActivity() {
     .filter((p) => p.total > 0)
     .sort((a, b) => b.total - a.total);
 
-  return { months, players: activity, vipThreshold: VIP_THRESHOLD_PER_MONTH };
+  return {
+    months: buckets,
+    monthLabels: bucketLabels,
+    granularity: isWeekly ? "week" : "month",
+    players: activity,
+    vipThreshold: VIP_THRESHOLD_PER_MONTH,
+  };
 }
 
 // Πόσα παιχνίδια χρειάζεται να έχει παίξει κάποιος ιστορικά για να θεωρηθεί
