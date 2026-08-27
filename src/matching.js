@@ -11,6 +11,8 @@
 const playtomic = require("./playtomicClient");
 const notifications = require("./notifications");
 const rewards = require("./rewards");
+const playerNotes = require("./playerNotes");
+const waitlist = require("./waitlist");
 
 const LEVEL_TOLERANCE = 0.3; // πόσο μπορεί να διαφέρει το επίπεδο για να θεωρηθεί "ταίρι"
 const RECENT_NOTIFY_HOURS = 48; // μετά από πόσες ώρες ξαναθεωρείται "φρέσκος" ένας παίκτης που ειδοποιήθηκε
@@ -292,6 +294,8 @@ async function buildWeeklyGaps(days = 7) {
   // δεν έχουν προταθεί ακόμα (διαφορετικοί πελάτες σε κάθε κενό, όχι πάντα
   // οι ίδιοι 2-3 άνθρωποι σε όλη την εβδομάδα).
   const suggestionUsage = new Map();
+  const players = await playtomic.getPlayers();
+  const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
 
   for (const { date, label } of dates) {
     const schedule = await buildSchedule(date);
@@ -327,6 +331,15 @@ async function buildWeeklyGaps(days = 7) {
         const chosen = ranked.slice(0, 4);
         chosen.forEach((p) => suggestionUsage.set(p.id, (suggestionUsage.get(p.id) || 0) + 1));
 
+        // Λίστα αναμονής: πελάτες που έχουν ζητήσει να ειδοποιηθούν αν
+        // ανοίξει κενό αυτή τη μέρα/ώρα — τους δείχνουμε ξεχωριστά γιατί
+        // εδώ ΕΚΕΙΝΟΙ έδειξαν ενδιαφέρον, δεν είναι απλή αυτόματη πρόταση.
+        const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
+        const waitlistMatches = waitlist
+          .findMatches(dayOfWeek, startTime, endTime)
+          .map((w) => ({ ...w, player: playerById[w.playerId] || null }))
+          .filter((w) => w.player);
+
         dayEntries.push({
           date,
           dateLabel: label,
@@ -337,6 +350,7 @@ async function buildWeeklyGaps(days = 7) {
           gapId,
           targetLevel,
           suggestions: chosen,
+          waitlistMatches,
         });
       }
     }
@@ -651,6 +665,38 @@ async function buildLapsedCustomers() {
   return { lapsed, minGames: LAPSED_MIN_HISTORICAL_GAMES, daysThreshold: LAPSED_DAYS_THRESHOLD };
 }
 
+// Συγκεντρωτικό "προφίλ" ενός παίκτη σε μία σελίδα: βασικά στοιχεία,
+// ιστορικό παιχνιδιών ανά μήνα, VIP status, αξιοπιστία ανταπόκρισης,
+// σημείωση προσωπικού, ιστορικό ανταμοιβών και αν είναι "χαμένος" πελάτης —
+// ώστε το προσωπικό να μη χρειάζεται να ψάχνει σε πολλές καρτέλες.
+async function buildPlayerProfile(playerId) {
+  const [players, activityData, lapsedData] = await Promise.all([
+    playtomic.getPlayers(),
+    buildPlayerActivity("month"),
+    buildLapsedCustomers(),
+  ]);
+  const player = players.find((p) => p.id === playerId);
+  if (!player) return null;
+
+  const activity = activityData.players.find((p) => p.id === playerId) || null;
+  const lapsedEntry = lapsedData.lapsed.find((p) => p.id === playerId) || null;
+
+  return {
+    id: player.id,
+    name: player.name,
+    level: player.level,
+    phone: player.phone,
+    activity, // { total, byMonth, vip, vipMonth, gamesToVip, rewardGiven } ή null αν δεν έχει παίξει ποτέ
+    monthLabels: activityData.monthLabels,
+    months: activityData.months,
+    isLapsed: Boolean(lapsedEntry),
+    lapsedInfo: lapsedEntry,
+    reliability: notifications.getReliability(playerId),
+    note: playerNotes.getNote(playerId),
+    rewardHistory: rewards.getRewardLog().filter((r) => r.playerId === playerId),
+  };
+}
+
 // Πόσοι παίκτες χρειάζονται για ένα πλήρες παιχνίδι padel (2 εναντίον 2).
 const GAME_FULL_SIZE = 4;
 
@@ -730,4 +776,5 @@ module.exports = {
   buildPlayerActivity,
   buildLapsedCustomers,
   buildOpenMatches,
+  buildPlayerProfile,
 };

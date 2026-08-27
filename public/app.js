@@ -24,6 +24,7 @@ const views = {
   swipe: document.getElementById("view-swipe"),
   dash: document.getElementById("view-dash"),
   customers: document.getElementById("view-customers"),
+  profile: document.getElementById("view-profile"),
 };
 
 let DATES = [];
@@ -45,6 +46,15 @@ function setView(name) {
 }
 
 navBtns.forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+
+// Προφίλ παίκτη: δεν έχει δικό του κουμπί στο nav (ανοίγει με κλικ πάνω σε
+// όνομα πελάτη) — χρησιμοποιεί την ίδια λογική εμφάνισης/απόκρυψης με το
+// setView, αλλά χωρίς να ενεργοποιεί κάποιο nav κουμπί.
+function showProfile(playerId) {
+  Object.keys(views).forEach((k) => (views[k].style.display = k === "profile" ? "" : "none"));
+  navBtns.forEach((b) => b.classList.remove("active"));
+  loadPlayerProfile(playerId);
+}
 
 async function ensureDates() {
   if (DATES.length) return;
@@ -277,6 +287,134 @@ function buildPlayerSearchBox(gapInfo, lookupNotified, getLang) {
   return wrap;
 }
 
+// Κουτί "μαζικής ειδοποίησης": λίστα με checkbox πάνω σε ΟΛΗ τη βάση
+// πελατών (φιλτραρισμένη με αναζήτηση), για να στέλνει το προσωπικό μήνυμα
+// σε πολλούς μαζί με ένα κλικ — π.χ. σε μεγάλο κενό/ολόκληρο αδειανό
+// απόγευμα, όχι μόνο στους 3-4 προτεινόμενους.
+function buildMassNotifyPanel(gapInfo, lookupNotified, getLang) {
+  const wrap = document.createElement("div");
+  wrap.style.marginTop = "10px";
+
+  const toggleBtn = el("button", "➕ Ειδοποίησε πολλούς μαζί");
+  wrap.appendChild(toggleBtn);
+
+  const panel = document.createElement("div");
+  panel.style.display = "none";
+  panel.style.marginTop = "10px";
+  wrap.appendChild(panel);
+
+  const sentThisSession = new Set();
+  let built = false;
+
+  toggleBtn.addEventListener("click", async () => {
+    const showing = panel.style.display !== "none";
+    if (showing) {
+      panel.style.display = "none";
+      toggleBtn.textContent = "➕ Ειδοποίησε πολλούς μαζί";
+      return;
+    }
+    panel.style.display = "block";
+    toggleBtn.textContent = "➖ Απόκρυψη";
+    if (!built) {
+      built = true;
+      await renderPanel();
+    }
+  });
+
+  async function renderPanel() {
+    panel.innerHTML = "";
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.placeholder = "Φιλτράρισμα με όνομα...";
+    searchInput.style.width = "100%";
+    searchInput.style.marginBottom = "8px";
+    panel.appendChild(searchInput);
+
+    const listWrap = document.createElement("div");
+    listWrap.style.maxHeight = "220px";
+    listWrap.style.overflowY = "auto";
+    panel.appendChild(listWrap);
+
+    const sendBtn = el("button", "Ειδοποίησε επιλεγμένους (0)");
+    sendBtn.style.marginTop = "8px";
+    sendBtn.disabled = true;
+    panel.appendChild(sendBtn);
+
+    const all = await getAllPlayersCached();
+    const checkboxes = new Map(); // playerId -> checkbox element
+
+    function updateSendBtn() {
+      const n = Array.from(checkboxes.values()).filter((cb) => cb.checked).length;
+      sendBtn.textContent = `Ειδοποίησε επιλεγμένους (${n})`;
+      sendBtn.disabled = n === 0;
+    }
+
+    function renderList(filterText) {
+      listWrap.innerHTML = "";
+      checkboxes.clear();
+      const q = filterText.trim().toLowerCase();
+      const filtered = q ? all.filter((p) => p.name.toLowerCase().includes(q)) : all;
+      filtered.slice(0, 40).forEach((p) => {
+        const already = lookupNotified(p.id) || sentThisSession.has(p.id);
+        const row = document.createElement("label");
+        row.style.display = "flex";
+        row.style.alignItems = "center";
+        row.style.gap = "8px";
+        row.style.padding = "4px 0";
+        row.style.fontSize = "13px";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.disabled = Boolean(already);
+        cb.addEventListener("change", updateSendBtn);
+        checkboxes.set(p.id, cb);
+        row.appendChild(cb);
+        row.appendChild(
+          document.createTextNode(`${p.name} · Επίπεδο ${p.level}${already ? " (ήδη ειδοποιήθηκε)" : ""}`)
+        );
+        listWrap.appendChild(row);
+      });
+    }
+
+    searchInput.addEventListener("input", () => renderList(searchInput.value));
+    renderList("");
+
+    sendBtn.addEventListener("click", async () => {
+      const selectedIds = Array.from(checkboxes.entries())
+        .filter(([, cb]) => cb.checked)
+        .map(([id]) => id);
+      if (!selectedIds.length) return;
+      sendBtn.disabled = true;
+      sendBtn.textContent = "...";
+      const lang = getLang ? getLang() : "el";
+      const windows = selectedIds.map(() => window.open("", "_blank"));
+
+      for (let idx = 0; idx < selectedIds.length; idx++) {
+        const playerId = selectedIds[idx];
+        try {
+          const notifyRes = await fetch(`/api/gaps/${encodeURIComponent(gapInfo.gapId)}/notify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ playerId, date: gapInfo.date, lang, kind: gapInfo.kind }),
+          });
+          const result = await notifyRes.json();
+          if (result.notification?.whatsappUrl && windows[idx]) {
+            windows[idx].location = result.notification.whatsappUrl;
+          } else if (windows[idx]) {
+            windows[idx].close();
+          }
+          sentThisSession.add(playerId);
+        } catch (e) {
+          if (windows[idx]) windows[idx].close();
+        }
+      }
+
+      renderList(searchInput.value);
+    });
+  }
+
+  return wrap;
+}
+
 // Χτίζει τα στοιχεία ελέγχου "αποτελέσματος" για μια ήδη σταλμένη
 // ειδοποίηση: "✓ Έκλεισε" / "✕ Όχι" όσο δεν έχει σημειωθεί ακόμα αποτέλεσμα,
 // ή ένα ένδειξη-badge (κλικ για επαναφορά) όταν έχει ήδη σημειωθεί. Έτσι το
@@ -416,6 +554,19 @@ async function loadWeeklyGaps() {
       notifyAllBtn.addEventListener("click", () => notifyAll(gap, pendingPlayers, notifyAllBtn, card, notifiedMap, getLang));
     }
     card.appendChild(titleRow);
+
+    // Λίστα αναμονής: πελάτες που έχουν ζητήσει να ειδοποιηθούν ακριβώς για
+    // αυτή τη μέρα/ώρα — τους δείχνουμε πρώτους, ξεχωριστά, γιατί εκείνοι
+    // έδειξαν οι ίδιοι ενδιαφέρον (όχι απλή αυτόματη πρόταση).
+    if (gap.waitlistMatches?.length) {
+      card.appendChild(el("p", "🕐 Στη λίστα αναμονής για αυτή την ώρα:", "sub"));
+      gap.waitlistMatches.forEach((w) => {
+        card.appendChild(
+          buildSuggestionRow(gap, w.player, notifiedMap.get(`${gap.gapId}|${w.playerId}`), getLang)
+        );
+      });
+    }
+
     if (gap.suggestions.length > 1) {
       card.appendChild(el("p", `Προτεινόμενη παρέα (${gap.suggestions.length}/4)`, "sub"));
     }
@@ -430,6 +581,9 @@ async function loadWeeklyGaps() {
 
     card.appendChild(
       buildPlayerSearchBox(gap, (playerId) => notifiedMap.get(`${gap.gapId}|${playerId}`), getLang)
+    );
+    card.appendChild(
+      buildMassNotifyPanel(gap, (playerId) => notifiedMap.get(`${gap.gapId}|${playerId}`), getLang)
     );
 
     container.appendChild(card);
@@ -625,6 +779,9 @@ async function loadOpenMatches() {
 
     card.appendChild(
       buildPlayerSearchBox(gapWithKind, (playerId) => notifiedMap.get(`${match.gapId}|${playerId}`), getLang)
+    );
+    card.appendChild(
+      buildMassNotifyPanel(gapWithKind, (playerId) => notifiedMap.get(`${match.gapId}|${playerId}`), getLang)
     );
 
     container.appendChild(card);
@@ -874,7 +1031,13 @@ async function loadCustomers() {
       const rankBadge = el("span", String(idx + 1), "rank");
       nameCell.appendChild(rankBadge);
     }
-    nameCell.appendChild(document.createTextNode(p.name));
+    const nameLink = el("span", p.name);
+    nameLink.style.cursor = "pointer";
+    nameLink.style.textDecoration = "underline";
+    nameLink.style.textDecorationStyle = "dotted";
+    nameLink.title = "Δες προφίλ πελάτη";
+    nameLink.addEventListener("click", () => showProfile(p.id));
+    nameCell.appendChild(nameLink);
     if (p.vip) nameCell.appendChild(el("span", "VIP", "vip-badge"));
     row.appendChild(nameCell);
     row.appendChild(el("td", typeof p.level === "number" ? String(p.level) : "—"));
@@ -985,6 +1148,225 @@ async function loadCustomers() {
       row.appendChild(actions);
       container.appendChild(row);
     });
+  }
+
+  await renderWaitlistSection(container);
+}
+
+const DAY_NAMES_EL = ["Κυριακή", "Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο"];
+
+// "Λίστα αναμονής": πελάτες που θέλουν να ειδοποιηθούν αν ανοίξει κενό
+// συγκεκριμένη μέρα/ώρα (π.χ. τηλεφώνησαν και είπαν "πες μου αν αδειάσει
+// κάτι Τρίτη βράδυ") — φαίνονται αυτόματα πάνω στα αντίστοιχα κενά στην
+// καρτέλα "Εβδομαδιαία κενά".
+async function renderWaitlistSection(container) {
+  const res = await fetch("/api/waitlist");
+  const data = await res.json();
+
+  container.appendChild(el("div", "Λίστα αναμονής", "dateheader"));
+  container.appendChild(
+    el("p", "Πελάτες που θέλουν να ειδοποιηθούν αν ανοίξει κενό συγκεκριμένη μέρα/ώρα.", "sub")
+  );
+
+  const form = document.createElement("div");
+  form.className = "levelfilter";
+  form.style.flexWrap = "wrap";
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.placeholder = "Όνομα πελάτη...";
+  const dayInput = document.createElement("select");
+  dayInput.innerHTML =
+    `<option value="">Οποιαδήποτε μέρα</option>` +
+    DAY_NAMES_EL.map((d, i) => `<option value="${i}">${d}</option>`).join("");
+  const fromInput = document.createElement("input");
+  fromInput.type = "time";
+  fromInput.value = "18:00";
+  const toInput = document.createElement("input");
+  toInput.type = "time";
+  toInput.value = "21:00";
+  const addBtn = el("button", "Πρόσθεσε στη λίστα");
+
+  form.appendChild(nameInput);
+  form.appendChild(dayInput);
+  form.appendChild(el("span", "από"));
+  form.appendChild(fromInput);
+  form.appendChild(el("span", "έως"));
+  form.appendChild(toInput);
+  form.appendChild(addBtn);
+  container.appendChild(form);
+
+  const pickedResults = document.createElement("div");
+  container.appendChild(pickedResults);
+  let selectedPlayerId = null;
+
+  nameInput.addEventListener("input", async () => {
+    const q = nameInput.value.trim().toLowerCase();
+    pickedResults.innerHTML = "";
+    selectedPlayerId = null;
+    if (!q) return;
+    const all = await getAllPlayersCached();
+    all
+      .filter((p) => p.name.toLowerCase().includes(q))
+      .slice(0, 6)
+      .forEach((p) => {
+        const opt = el("button", p.name);
+        opt.style.marginRight = "6px";
+        opt.style.marginTop = "4px";
+        opt.addEventListener("click", () => {
+          selectedPlayerId = p.id;
+          nameInput.value = p.name;
+          pickedResults.innerHTML = "";
+        });
+        pickedResults.appendChild(opt);
+      });
+  });
+
+  addBtn.addEventListener("click", async () => {
+    if (!selectedPlayerId) {
+      alert("Διάλεξε πρώτα έναν πελάτη από τα αποτελέσματα αναζήτησης.");
+      return;
+    }
+    addBtn.disabled = true;
+    addBtn.textContent = "...";
+    await fetch("/api/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        playerId: selectedPlayerId,
+        dayOfWeek: dayInput.value === "" ? null : parseInt(dayInput.value, 10),
+        timeFrom: fromInput.value,
+        timeTo: toInput.value,
+      }),
+    });
+    loadCustomers();
+  });
+
+  const list = document.createElement("div");
+  list.style.marginTop = "10px";
+  container.appendChild(list);
+
+  if (!data.entries.length) {
+    list.appendChild(el("p", "Δεν υπάρχουν εγγραφές ακόμα.", "sub"));
+  } else {
+    data.entries.forEach((entryItem) => {
+      if (!entryItem.player) return;
+      const row = el("div", "", "player");
+      const dayLabel = entryItem.dayOfWeek === null ? "Οποιαδήποτε μέρα" : DAY_NAMES_EL[entryItem.dayOfWeek];
+      row.appendChild(
+        el("span", `${entryItem.player.name} · ${dayLabel} · ${entryItem.timeFrom}–${entryItem.timeTo}`)
+      );
+      const delBtn = el("button", "Αφαίρεση");
+      delBtn.addEventListener("click", async () => {
+        delBtn.disabled = true;
+        await fetch(`/api/waitlist/${encodeURIComponent(entryItem.id)}`, { method: "DELETE" });
+        loadCustomers();
+      });
+      row.appendChild(delBtn);
+      list.appendChild(row);
+    });
+  }
+}
+
+// Σελίδα προφίλ ενός παίκτη: ιστορικό, VIP, αξιοπιστία, σημείωση προσωπικού
+// και ιστορικό ανταμοιβών μαζεμένα σε ένα μέρος (ανοίγει με κλικ πάνω στο
+// όνομα στην καρτέλα "Πελάτες").
+async function loadPlayerProfile(playerId) {
+  const container = views.profile;
+  container.innerHTML = "";
+  container.appendChild(el("p", "Φόρτωση...", "sub"));
+
+  const res = await fetch(`/api/players/${encodeURIComponent(playerId)}/profile`);
+  const data = await res.json();
+  container.innerHTML = "";
+
+  if (!data || data.error) {
+    container.appendChild(el("p", "Δεν βρέθηκε ο παίκτης.", "sub"));
+    return;
+  }
+
+  const backBtn = el("button", "← Πίσω στους Πελάτες");
+  backBtn.addEventListener("click", () => setView("customers"));
+  container.appendChild(backBtn);
+
+  const header = document.createElement("div");
+  header.style.marginTop = "14px";
+  const vipBadgeHtml = data.activity?.vip ? ` <span class="vip-badge">VIP</span>` : "";
+  const lapsedHtml = data.isLapsed ? ` · ⚠️ Χαμένος πελάτης (${data.lapsedInfo.daysSinceLastPlay} μέρες)` : "";
+  header.innerHTML = `<h1 style="margin:0 0 4px;">${data.name}${vipBadgeHtml}</h1>
+    <p class="sub" style="margin:0;">Επίπεδο ${data.level ?? "—"}${lapsedHtml}</p>`;
+  container.appendChild(header);
+
+  const metrics = document.createElement("div");
+  metrics.className = "metrics";
+  metrics.style.marginTop = "14px";
+  metrics.appendChild(metric("Συνολικά παιχνίδια", data.activity ? String(data.activity.total) : "0"));
+  if (data.reliability) {
+    metrics.appendChild(metric("Ανταπόκριση ειδοποιήσεων", `${data.reliability.pct}% (${data.reliability.sent})`));
+  }
+  if (data.activity && !data.activity.vip && data.activity.gamesToVip > 0) {
+    metrics.appendChild(metric("Παιχνίδια ακόμα για VIP", String(data.activity.gamesToVip)));
+  }
+  container.appendChild(metrics);
+
+  if (data.activity && data.months.length) {
+    const section = document.createElement("div");
+    section.style.marginTop = "18px";
+    section.appendChild(el("p", "Παιχνίδια ανά μήνα", "sub"));
+    data.months.forEach((mk) => {
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.justifyContent = "space-between";
+      row.style.fontSize = "13px";
+      row.style.marginBottom = "4px";
+      row.appendChild(el("span", data.monthLabels[mk] || mk));
+      row.appendChild(el("span", String(data.activity.byMonth[mk] || 0)));
+      section.appendChild(row);
+    });
+    container.appendChild(section);
+  }
+
+  const notesSection = document.createElement("div");
+  notesSection.style.marginTop = "18px";
+  notesSection.appendChild(el("p", "Σημείωση προσωπικού", "sub"));
+  const textarea = document.createElement("textarea");
+  textarea.style.width = "100%";
+  textarea.style.borderRadius = "10px";
+  textarea.style.border = "0.5px solid var(--border-strong)";
+  textarea.style.padding = "8px 10px";
+  textarea.style.fontFamily = "inherit";
+  textarea.rows = 3;
+  textarea.value = data.note?.note || "";
+  textarea.placeholder = "π.χ. θέλει πάντα Δευτέρα βράδυ, μην τηλεφωνείτε πριν τις 10πμ...";
+  notesSection.appendChild(textarea);
+  const saveNoteBtn = el("button", "Αποθήκευση σημείωσης");
+  saveNoteBtn.style.marginTop = "8px";
+  saveNoteBtn.addEventListener("click", async () => {
+    saveNoteBtn.disabled = true;
+    saveNoteBtn.textContent = "...";
+    await fetch(`/api/players/${encodeURIComponent(playerId)}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: textarea.value }),
+    });
+    saveNoteBtn.disabled = false;
+    saveNoteBtn.textContent = "Αποθηκεύτηκε ✓";
+    setTimeout(() => {
+      saveNoteBtn.textContent = "Αποθήκευση σημείωσης";
+    }, 1500);
+  });
+  notesSection.appendChild(saveNoteBtn);
+  container.appendChild(notesSection);
+
+  if (data.rewardHistory.length) {
+    const rSection = document.createElement("div");
+    rSection.style.marginTop = "18px";
+    rSection.appendChild(el("div", "Ιστορικό ανταμοιβών", "dateheader"));
+    data.rewardHistory.forEach((r) => {
+      rSection.appendChild(
+        el("p", `${r.month} · δόθηκε ${new Date(r.givenAt).toLocaleDateString("el-GR")}`, "sub")
+      );
+    });
+    container.appendChild(rSection);
   }
 }
 

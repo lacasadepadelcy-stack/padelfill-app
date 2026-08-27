@@ -17,6 +17,8 @@ const swipeModule = require("./src/swipe");
 const notifications = require("./src/notifications");
 const history = require("./src/history");
 const rewards = require("./src/rewards");
+const playerNotes = require("./src/playerNotes");
+const waitlist = require("./src/waitlist");
 
 // ============================================================
 // Απλό login. Στοιχεία σύνδεσης ΔΕΝ μπαίνουν ποτέ στον κώδικα· ορίζονται ως
@@ -344,6 +346,50 @@ const server = http.createServer(async (req, res) => {
       if (!player) return sendJSON(res, 404, { error: "Άγνωστος παίκτης" });
       const entry = notifications.sendReengagementNotification(player, body.lang);
       return sendJSON(res, 200, { sent: true, notification: entry });
+    }
+
+    // Σημείωση προσωπικού ανά πελάτη (π.χ. "θέλει πάντα Δευτέρα βράδυ").
+    const notesMatch = pathname.match(/^\/api\/players\/([^/]+)\/notes$/);
+    if (notesMatch && req.method === "GET") {
+      const playerId = decodeURIComponent(notesMatch[1]);
+      return sendJSON(res, 200, { note: playerNotes.getNote(playerId) });
+    }
+    if (notesMatch && req.method === "POST") {
+      const playerId = decodeURIComponent(notesMatch[1]);
+      const body = await readBody(req);
+      const entry = playerNotes.setNote(playerId, body.note);
+      return sendJSON(res, 200, { ok: true, note: entry });
+    }
+
+    // Προφίλ παίκτη σε μία σελίδα: ιστορικό, VIP, αξιοπιστία, σημείωση,
+    // ανταμοιβές — μαζεμένα, για να μη ψάχνει το προσωπικό σε πολλές καρτέλες.
+    const profileMatch = pathname.match(/^\/api\/players\/([^/]+)\/profile$/);
+    if (profileMatch && req.method === "GET") {
+      const playerId = decodeURIComponent(profileMatch[1]);
+      const profile = await matching.buildPlayerProfile(playerId);
+      if (!profile) return sendJSON(res, 404, { error: "Άγνωστος παίκτης" });
+      return sendJSON(res, 200, profile);
+    }
+
+    // Λίστα αναμονής: πελάτες που θέλουν να ειδοποιηθούν αν ανοίξει κενό
+    // συγκεκριμένη μέρα/ώρα.
+    if (pathname === "/api/waitlist" && req.method === "GET") {
+      const players = await playtomic.getPlayers();
+      const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
+      const entries = waitlist.listEntries().map((e) => ({ ...e, player: playerById[e.playerId] || null }));
+      return sendJSON(res, 200, { entries });
+    }
+    if (pathname === "/api/waitlist" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!body.playerId) return sendJSON(res, 400, { error: "playerId απαιτείται" });
+      const entry = waitlist.addEntry(body);
+      return sendJSON(res, 200, { ok: true, entry });
+    }
+    const waitlistDeleteMatch = pathname.match(/^\/api\/waitlist\/([^/]+)$/);
+    if (waitlistDeleteMatch && req.method === "DELETE") {
+      const id = decodeURIComponent(waitlistDeleteMatch[1]);
+      const ok = waitlist.removeEntry(id);
+      return sendJSON(res, ok ? 200 : 404, { ok });
     }
 
     const historyMatch = pathname.match(/^\/api\/players\/([^/]+)\/history$/);
