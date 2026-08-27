@@ -423,6 +423,57 @@ async function reconcileNotificationOutcomes() {
   return { updated };
 }
 
+const MONTH_NAMES_EL = ["Ιαν", "Φεβ", "Μαρ", "Απρ", "Μάι", "Ιουν", "Ιουλ", "Αυγ", "Σεπ", "Οκτ", "Νοε", "Δεκ"];
+
+// Μηνιαία τάση: πόσα παιχνίδια (bookings) έγιναν ανά μήνα τους τελευταίους
+// ~3 μήνες (όσο κρατάει το ιστορικό), για να φαίνεται αν η πληρότητα
+// ανεβαίνει ή κατεβαίνει με τον καιρό. Ο τρέχων μήνας σημειώνεται ως
+// "partial" (δεν έχει τελειώσει ακόμα) ώστε να μη συγκρίνεται άδικα με
+// ολοκληρωμένους μήνες.
+async function buildMonthlyTrend() {
+  const matches = await playtomic.getPastMatches();
+  const byMonth = new Map(); // "YYYY-MM" -> πλήθος παιχνιδιών
+
+  matches.forEach((m) => {
+    const monthKey = m.date.slice(0, 7);
+    byMonth.set(monthKey, (byMonth.get(monthKey) || 0) + 1);
+  });
+
+  const today = new Date();
+
+  const months = Array.from(byMonth.keys())
+    .sort()
+    .map((monthKey) => {
+      const [y, mo] = monthKey.split("-").map(Number);
+      const isCurrentMonth = today.getFullYear() === y && today.getMonth() + 1 === mo;
+      const daysInMonth = new Date(y, mo, 0).getDate();
+      const daysSoFar = isCurrentMonth ? today.getDate() : daysInMonth;
+      const bookings = byMonth.get(monthKey);
+      return {
+        month: monthKey,
+        label: `${MONTH_NAMES_EL[mo - 1]} ${y}`,
+        bookings,
+        avgPerDay: daysSoFar ? Math.round((bookings / daysSoFar) * 10) / 10 : 0,
+        partial: isCurrentMonth,
+      };
+    });
+
+  // Ποσοστιαία μεταβολή ανάμεσα στους δύο πιο πρόσφατους ΟΛΟΚΛΗΡΩΜΕΝΟΥΣ μήνες
+  // (αγνοώντας τον τρέχοντα, μισοτελειωμένο μήνα) — για μια γρήγορη ένδειξη
+  // τάσης "πάμε καλύτερα ή χειρότερα".
+  const completedMonths = months.filter((m) => !m.partial);
+  let trendPct = null;
+  if (completedMonths.length >= 2) {
+    const latest = completedMonths[completedMonths.length - 1];
+    const prev = completedMonths[completedMonths.length - 2];
+    if (prev.avgPerDay > 0) {
+      trendPct = Math.round(((latest.avgPerDay - prev.avgPerDay) / prev.avgPerDay) * 100);
+    }
+  }
+
+  return { months, trendPct };
+}
+
 module.exports = {
   buildSchedule,
   suggestPlayersForGap,
@@ -430,4 +481,5 @@ module.exports = {
   buildWeeklyGaps,
   buildWeeklyStats,
   reconcileNotificationOutcomes,
+  buildMonthlyTrend,
 };

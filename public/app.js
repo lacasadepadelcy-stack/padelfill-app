@@ -489,14 +489,16 @@ async function loadSwipeCandidate() {
 
 async function loadDashboard() {
   await ensureDates();
-  const [res, statsRes, weeklyStatsRes] = await Promise.all([
+  const [res, statsRes, weeklyStatsRes, monthlyRes] = await Promise.all([
     fetch(`/api/dashboard?date=${currentDate()}`),
     fetch("/api/notifications/stats"),
     fetch("/api/stats/weekly?days=7"),
+    fetch("/api/stats/monthly"),
   ]);
   const data = await res.json();
   const stats = await statsRes.json();
   const weeklyStats = await weeklyStatsRes.json();
+  const monthly = await monthlyRes.json();
   const container = views.dash;
   container.innerHTML = "";
   const metrics = document.createElement("div");
@@ -527,6 +529,62 @@ async function loadDashboard() {
       weekMetrics.appendChild(metric("Πιο «αδύναμη» ώρα (7 μέρες)", `${worstHour.time} · ${worstHour.gapPct}% κενά`));
     }
     container.appendChild(weekMetrics);
+  }
+
+  if (monthly.months?.length) {
+    const section = document.createElement("div");
+    section.style.marginTop = "16px";
+
+    const trendText =
+      monthly.trendPct === null
+        ? ""
+        : monthly.trendPct > 0
+        ? ` (↑ ${monthly.trendPct}% σε σχέση με τον προηγούμενο μήνα)`
+        : monthly.trendPct < 0
+        ? ` (↓ ${Math.abs(monthly.trendPct)}% σε σχέση με τον προηγούμενο μήνα)`
+        : " (ίδια με τον προηγούμενο μήνα)";
+    section.appendChild(el("p", `Τάση πληρότητας ανά μήνα${trendText}`, "sub"));
+
+    const maxAvg = Math.max(...monthly.months.map((m) => m.avgPerDay), 1);
+    monthly.months.forEach((m) => {
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.alignItems = "center";
+      row.style.gap = "8px";
+      row.style.marginBottom = "6px";
+      row.style.fontSize = "12.5px";
+
+      const label = el("span", `${m.label}${m.partial ? " (μέχρι σήμερα)" : ""}`);
+      label.style.width = "150px";
+      label.style.flexShrink = "0";
+      label.style.color = "var(--text-secondary)";
+
+      const barWrap = document.createElement("div");
+      barWrap.style.flex = "1";
+      barWrap.style.background = "var(--surface-1)";
+      barWrap.style.borderRadius = "999px";
+      barWrap.style.height = "16px";
+      barWrap.style.overflow = "hidden";
+
+      const bar = document.createElement("div");
+      bar.style.height = "100%";
+      bar.style.width = `${Math.max((m.avgPerDay / maxAvg) * 100, 4)}%`;
+      bar.style.background = m.partial ? "var(--border-warning)" : "var(--accent)";
+      bar.style.borderRadius = "999px";
+      barWrap.appendChild(bar);
+
+      const value = el("span", `${m.avgPerDay}/μέρα`);
+      value.style.width = "70px";
+      value.style.flexShrink = "0";
+      value.style.color = "var(--text-secondary)";
+
+      row.appendChild(label);
+      row.appendChild(barWrap);
+      row.appendChild(value);
+      section.appendChild(row);
+    });
+
+    container.appendChild(section);
   }
 }
 
