@@ -22,6 +22,7 @@ const views = {
   weekly: document.getElementById("view-weekly"),
   swipe: document.getElementById("view-swipe"),
   dash: document.getElementById("view-dash"),
+  customers: document.getElementById("view-customers"),
 };
 
 let DATES = [];
@@ -34,6 +35,7 @@ function setView(name) {
   if (name === "weekly") loadWeeklyGaps();
   if (name === "swipe") loadSwipeCandidate();
   if (name === "dash") loadDashboard();
+  if (name === "customers") loadCustomers();
 }
 
 navBtns.forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
@@ -586,6 +588,69 @@ async function loadDashboard() {
 
     container.appendChild(section);
   }
+}
+
+// Πίνακας πελατών: πόσα παιχνίδια έκανε ο καθένας ανά μήνα (τελευταίοι ~3
+// μήνες ιστορικού) — για σχεδιασμό προγράμματος ανταμοιβής στους πιο
+// τακτικούς πελάτες. Ταξινομημένοι από τον πιο τακτικό στον λιγότερο.
+async function loadCustomers() {
+  const container = views.customers;
+  container.innerHTML = "";
+  container.appendChild(el("p", "Φόρτωση...", "sub"));
+
+  const res = await fetch("/api/stats/players");
+  const data = await res.json();
+  container.innerHTML = "";
+
+  if (!data.players?.length) {
+    container.appendChild(el("p", "Δεν υπάρχει ακόμα αρκετό ιστορικό παιχνιδιών.", "sub"));
+    return;
+  }
+
+  container.appendChild(
+    el("p", `Παιχνίδια ανά πελάτη, ανά μήνα (${data.months.length} μήνες ιστορικού)`, "sub")
+  );
+
+  const wrap = document.createElement("div");
+  wrap.className = "schedulewrap";
+  const table = document.createElement("table");
+  table.className = "datatable";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  headRow.appendChild(el("th", "Πελάτης"));
+  headRow.appendChild(el("th", "Επίπεδο"));
+  data.months.forEach((mk) => headRow.appendChild(el("th", mk)));
+  headRow.appendChild(el("th", "Σύνολο"));
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  data.players.forEach((p, idx) => {
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    if (idx < 3) {
+      const rankBadge = el("span", String(idx + 1), "rank");
+      nameCell.appendChild(rankBadge);
+    }
+    nameCell.appendChild(document.createTextNode(p.name));
+    row.appendChild(nameCell);
+    row.appendChild(el("td", typeof p.level === "number" ? String(p.level) : "—"));
+    data.months.forEach((mk) => {
+      const cell = el("td", String(p.byMonth[mk] || 0));
+      cell.className = "num";
+      row.appendChild(cell);
+    });
+    const totalCell = el("td", String(p.total));
+    totalCell.className = "num";
+    totalCell.style.fontWeight = "700";
+    row.appendChild(totalCell);
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+
+  wrap.appendChild(table);
+  container.appendChild(wrap);
 }
 
 function metric(label, value) {

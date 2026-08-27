@@ -244,6 +244,10 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, await matching.buildMonthlyTrend());
     }
 
+    if (pathname === "/api/stats/players" && req.method === "GET") {
+      return sendJSON(res, 200, await matching.buildPlayerActivity());
+    }
+
     const historyMatch = pathname.match(/^\/api\/players\/([^/]+)\/history$/);
     if (historyMatch && req.method === "GET") {
       const playerId = decodeURIComponent(historyMatch[1]);

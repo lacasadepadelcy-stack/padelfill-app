@@ -89,6 +89,13 @@
   .outcome-btn{ font-size:11px; padding:4px 9px; }
   .outcome-booked{ color:var(--text-success); font-size:12px; cursor:pointer; background:var(--bg-success); padding:3px 8px; border-radius:999px; }
   .outcome-no{ color:var(--text-danger); font-size:12px; cursor:pointer; background:var(--bg-danger); padding:3px 8px; border-radius:999px; }
+  .datatable{ width:100%; border-collapse:collapse; font-size:12.5px; background:var(--surface-2); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-sm); }
+  .datatable th, .datatable td{ padding:9px 12px; text-align:left; border-bottom:0.5px solid var(--border); }
+  .datatable th{ color:var(--text-secondary); font-weight:600; background:var(--surface-1); font-size:11.5px; text-transform:uppercase; letter-spacing:0.02em; }
+  .datatable td.num{ text-align:right; font-variant-numeric:tabular-nums; }
+  .datatable tr:last-child td{ border-bottom:none; }
+  .datatable tr:hover td{ background:var(--surface-1); }
+  .rank{ display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; background:var(--bg-accent); color:var(--text-accent); font-size:11px; font-weight:700; margin-right:8px; }
   @media (max-width:520px){
     body{ padding:0 0.75rem 2rem; }
     .topbar{ padding-top:1.1rem; }
@@ -114,12 +121,14 @@
     <button class="navbtn" data-view="weekly">Εβδομαδιαία κενά</button>
     <button class="navbtn" data-view="swipe">Swipe to play</button>
     <button class="navbtn" data-view="dash">Dashboard</button>
+    <button class="navbtn" data-view="customers">Πελάτες</button>
   </div>
 
   <div id="view-schedule" class="view"></div>
   <div id="view-weekly" class="view" style="display:none;"></div>
   <div id="view-swipe" class="view" style="display:none;"></div>
   <div id="view-dash" class="view" style="display:none;"></div>
+  <div id="view-customers" class="view" style="display:none;"></div>
 </div>
 
 <script src="app.js"></script>

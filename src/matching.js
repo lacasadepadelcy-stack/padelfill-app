@@ -474,6 +474,52 @@ async function buildMonthlyTrend() {
   return { months, trendPct };
 }
 
+// Πόσα παιχνίδια έκανε ΚΑΘΕ παίκτης ανά μήνα (τελευταίοι ~3 μήνες, όσο
+// κρατάει το ιστορικό) — χρήσιμο για να φτιάξει κανείς πρόγραμμα ανταμοιβής
+// στους πιο τακτικούς πελάτες.
+async function buildPlayerActivity() {
+  const [matches, players] = await Promise.all([playtomic.getPastMatches(), playtomic.getPlayers()]);
+  const playerById = Object.fromEntries(players.map((p) => [p.id, p]));
+
+  const perPlayerMonth = new Map(); // playerId -> Map(monthKey -> count)
+  const monthSet = new Set();
+
+  matches.forEach((m) => {
+    const monthKey = m.date.slice(0, 7);
+    monthSet.add(monthKey);
+    m.players.forEach((pid) => {
+      if (!perPlayerMonth.has(pid)) perPlayerMonth.set(pid, new Map());
+      const monthMap = perPlayerMonth.get(pid);
+      monthMap.set(monthKey, (monthMap.get(monthKey) || 0) + 1);
+    });
+  });
+
+  const months = Array.from(monthSet).sort();
+
+  const activity = Array.from(perPlayerMonth.entries())
+    .map(([pid, monthMap]) => {
+      const player = playerById[pid];
+      const byMonth = {};
+      let total = 0;
+      months.forEach((mk) => {
+        const count = monthMap.get(mk) || 0;
+        byMonth[mk] = count;
+        total += count;
+      });
+      return {
+        id: pid,
+        name: player ? player.name : "Άγνωστος παίκτης",
+        level: player ? player.level : null,
+        total,
+        byMonth,
+      };
+    })
+    .filter((p) => p.total > 0)
+    .sort((a, b) => b.total - a.total);
+
+  return { months, players: activity };
+}
+
 module.exports = {
   buildSchedule,
   suggestPlayersForGap,
@@ -482,4 +528,5 @@ module.exports = {
   buildWeeklyStats,
   reconcileNotificationOutcomes,
   buildMonthlyTrend,
+  buildPlayerActivity,
 };
